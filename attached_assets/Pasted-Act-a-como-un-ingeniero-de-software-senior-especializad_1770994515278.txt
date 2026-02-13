@@ -1,0 +1,160 @@
+Actúa como un ingeniero de software senior especializado en trading algorítmico, sistemas resilientes y APIs financieras.
+
+Quiero que construyas un bot de market making asimétrico para mercados de Bitcoin de 5 minutos en Polymarket usando su CLOB API oficial.
+
+El objetivo NO es apostar dirección, sino capturar micro-spreads y rotar capital con alta frecuencia, cerrando idealmente antes del vencimiento.
+
+El sistema debe ser robusto, seguro y listo para operar en producción.
+
+⸻
+
+1) Stack técnico obligatorio
+
+Lenguaje:
+	•	TypeScript en modo estricto
+
+Librerías clave:
+	•	SDK oficial @polymarket/clob-client
+	•	Zod para validación runtime
+	•	Pino para logging estructurado
+	•	SQLite o Postgres para persistencia ligera
+
+Arquitectura:
+	•	12-factor app
+	•	Configuración por variables de entorno
+	•	Un solo codebase ejecutable local y en servidor
+
+⸻
+
+2) Arquitectura del sistema
+
+Separar en módulos:
+
+Core Strategy Engine
+	•	Lógica pura sin dependencias externas
+	•	FSM (máquina de estados)
+
+Order Manager
+	•	Colocación de órdenes
+	•	Cancelación
+	•	Replace
+	•	Idempotencia por clientOrderId
+
+Reconciliation Engine
+	•	Reconstruir estado desde exchange
+	•	Detectar fills parciales
+	•	Corregir inventario
+
+Market Data Module
+	•	Lectura de orderbook
+	•	Cálculo de spread
+	•	Midpoint
+	•	Liquidez
+
+Risk Manager
+	•	Límite de exposición neta
+	•	Pérdida diaria máxima
+	•	Límite de pérdidas consecutivas
+
+Persistence Layer
+	•	Registro de eventos
+	•	Órdenes
+	•	Fills
+	•	PnL
+
+⸻
+
+3) Estrategia de Market Making
+
+Modelo:
+	•	Asimétrico
+	•	Operar solo el lado con mejor spread/reversión
+
+Reglas:
+
+Operar solo si:
+	•	Spread ≥ 0.03
+	•	Mercado activo
+	•	Sin breakout fuerte en BTC
+
+Entrada:
+	•	Comprar en best bid
+
+Salida:
+	•	Vender +0.03 a +0.05 arriba
+
+Nunca esperar resolución como estrategia primaria.
+
+⸻
+
+4) Máquina de estados (FSM)
+
+Estados:
+
+MAKING
+	•	Cotizar normalmente
+
+UNWIND (T-120s)
+	•	Reducir tamaño
+	•	Priorizar cierre de inventario
+
+CLOSE_ONLY (T-60s)
+	•	Prohibido abrir nuevas posiciones
+	•	Solo cerrar
+
+HEDGE_LOCK (T-45s)
+	•	Si hay exposición neta, cubrir con lado opuesto
+
+DONE
+	•	Esperar nuevo mercado
+
+⸻
+
+5) Gestión de riesgo obligatoria
+	•	Max exposición neta configurable
+	•	Max pérdida diaria
+	•	Stop tras N pérdidas consecutivas
+	•	Kill switch manual
+	•	No promediar pérdidas
+	•	No convertir en apuesta direccional
+
+⸻
+
+6) Seguridad
+	•	Claves solo en variables de entorno
+	•	Nunca hardcodear secrets
+	•	Manejo seguro de errores API
+	•	Retry con backoff
+	•	Manejo de rate limits
+
+⸻
+
+7) Modo paper trading
+
+Debe existir modo simulación que:
+	•	Use datos reales de orderbook
+	•	Simule fills conservadores
+	•	Permita validar estrategia sin riesgo
+
+⸻
+
+8) Producción
+
+El bot debe:
+	•	Poder correr 24/7
+	•	Reiniciarse automáticamente
+	•	Tener logs claros
+	•	Permitir monitoreo externo
+
+⸻
+
+9) Objetivo final
+
+Sistema estable que:
+	•	Minimice riesgo direccional
+	•	Capture spreads consistentemente
+	•	Sea escalable a mercados de 15 minutos luego
+	•	Sea mantenible y modular
+
+No quiero un script rápido.
+Quiero una base profesional lista para iterar.
