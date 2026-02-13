@@ -1,15 +1,16 @@
 import { db } from "../../db";
 import { dualEntryConfig, dualEntryCycles } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { liveTradingClient } from "../../bot/live-trading-client";
 import { polymarketClient } from "../../bot/polymarket-client";
-import type { CycleState, CycleContext, CycleLogEntry, StrategyConfig, EngineStatus } from "./types";
+import { volatilityTracker } from "./volatility-tracker";
+import type { CycleState, CycleContext, CycleLogEntry, StrategyConfig, EngineStatus, MarketSlot } from "./types";
 
 const WINDOW_DURATION_MS = 5 * 60 * 1000;
 
 export class DualEntry5mEngine {
   private running = false;
-  private currentCycle: CycleContext | null = null;
+  private currentCycles: Map<string, CycleContext> = new Map();
   private config: StrategyConfig | null = null;
   private mainLoopInterval: ReturnType<typeof setInterval> | null = null;
   private cycleCounter = 0;
@@ -27,6 +28,7 @@ export class DualEntry5mEngine {
     this.config = cfg;
     this.running = true;
     this.dedupeKeys.clear();
+    this.currentCycles.clear();
 
     if (!cfg.isDryRun && !liveTradingClient.isInitialized()) {
       const init = await liveTradingClient.initialize();
@@ -38,7 +40,9 @@ export class DualEntry5mEngine {
     const lastCycles = await db.select().from(dualEntryCycles).orderBy(desc(dualEntryCycles.cycleNumber)).limit(1);
     this.cycleCounter = lastCycles.length > 0 ? lastCycles[0].cycleNumber : 0;
 
-    this.log("ENGINE_START", `Strategy started. Dry-run: ${cfg.isDryRun}`);
+    volatilityTracker.start(cfg.marketTokenYes, cfg.marketTokenNo);
+
+    this.log("ENGINE_START", `Strategy started. Dry-run: ${cfg.isDryRun}. Smart features: vol=${cfg.volFilterEnabled}, dynEntry=${cfg.dynamicEntryEnabled}, momTP=${cfg.momentumTpEnabled}, dynSize=${cfg.dynamicSizeEnabled}, smartCancel=${cfg.smartScratchCancel}, hourFilter=${cfg.hourFilterEnabled}, multiMarket=${cfg.multiMarketEnabled}`);
 
     this.mainLoopInterval = setInterval(() => this.tick(), 2000);
     this.tick();
@@ -54,11 +58,18 @@ export class DualEntry5mEngine {
       this.mainLoopInterval = null;
     }
 
-    if (this.currentCycle) {
-      this.clearCycleTimers();
-      await this.transitionState("CLEANUP");
-      await this.cleanupCycle("Strategy stopped by user");
+    const keys = Array.from(this.currentCycles.keys());
+    for (const key of keys) {
+      const cycle = this.currentCycles.get(key);
+      if (cycle) {
+        this.clearCycleTimers(cycle);
+        await this.transitionState(cycle, "CLEANUP");
+        await this.cleanupCycle(cycle, "Strategy stopped by user");
+      }
     }
+    this.currentCycles.clear();
+
+    volatilityTracker.stop();
 
     const row = await this.getConfigRow();
     if (row) {
@@ -66,43 +77,199 @@ export class DualEntry5mEngine {
     }
 
     this.log("ENGINE_STOP", "Strategy stopped");
-    this.currentCycle = null;
     this.config = null;
   }
 
   getStatus(): EngineStatus {
+    const primaryCycle = this.currentCycles.get("primary") || null;
     return {
       isRunning: this.running,
-      currentCycle: this.currentCycle ? { ...this.currentCycle, timers: [] } : null,
+      currentCycle: primaryCycle ? { ...primaryCycle, timers: [] } : null,
       config: this.config,
       nextWindowStart: this.running ? this.getNextWindowStart() : null,
+      volatility: this.config ? volatilityTracker.getSnapshot(
+        this.config.volWindowMinutes,
+        this.config.volMinThreshold,
+        this.config.volMaxThreshold
+      ) : null,
+      activeCycles: this.currentCycles.size,
     };
+  }
+
+  getAllCycleStatuses(): Array<CycleContext & { slotKey: string }> {
+    const results: Array<CycleContext & { slotKey: string }> = [];
+    const keys = Array.from(this.currentCycles.keys());
+    for (const key of keys) {
+      const cycle = this.currentCycles.get(key);
+      if (cycle) {
+        results.push({ ...cycle, timers: [], slotKey: key });
+      }
+    }
+    return results;
   }
 
   private async tick(): Promise<void> {
     if (!this.running || !this.config) return;
 
     try {
-      if (!this.currentCycle) {
-        const nextWindow = this.getNextWindowStart();
-        const now = Date.now();
-        const armTime = nextWindow.getTime() - this.config.entryLeadSecondsPrimary * 1000;
+      const marketSlots = this.getMarketSlots();
 
-        if (now >= armTime) {
-          await this.startNewCycle(nextWindow);
+      for (const slot of marketSlots) {
+        const slotKey = slot.key;
+        const cycle = this.currentCycles.get(slotKey);
+
+        if (!cycle) {
+          const nextWindow = this.getNextWindowStart();
+          const now = Date.now();
+          const armTime = nextWindow.getTime() - this.config.entryLeadSecondsPrimary * 1000;
+
+          if (now >= armTime) {
+            if (await this.shouldEnterCycle()) {
+              await this.startNewCycle(nextWindow, slotKey, slot.tokenYes, slot.tokenNo, slot.negRisk, slot.tickSize);
+            }
+          }
+        } else {
+          await this.processCycleState(cycle, slotKey);
         }
-        return;
       }
-
-      await this.processCycleState();
     } catch (err: any) {
-      this.logCycle("TICK_ERROR", err.message);
+      this.log("TICK_ERROR", err.message);
     }
   }
 
-  private async startNewCycle(windowStart: Date): Promise<void> {
+  private getMarketSlots(): Array<{ key: string; tokenYes: string; tokenNo: string; negRisk: boolean; tickSize: string }> {
+    if (!this.config) return [];
+    const slots = [{
+      key: "primary",
+      tokenYes: this.config.marketTokenYes,
+      tokenNo: this.config.marketTokenNo,
+      negRisk: this.config.negRisk,
+      tickSize: this.config.tickSize,
+    }];
+
+    if (this.config.multiMarketEnabled && this.config.additionalMarkets.length > 0) {
+      for (let i = 0; i < this.config.additionalMarkets.length; i++) {
+        const m = this.config.additionalMarkets[i];
+        slots.push({
+          key: `market-${i}`,
+          tokenYes: m.tokenYes,
+          tokenNo: m.tokenNo,
+          negRisk: m.negRisk,
+          tickSize: m.tickSize,
+        });
+      }
+    }
+    return slots;
+  }
+
+  private async shouldEnterCycle(): Promise<boolean> {
+    if (!this.config) return false;
+
+    if (this.config.hourFilterEnabled && this.config.hourFilterAllowed.length > 0) {
+      const currentHour = new Date().getUTCHours();
+      if (!this.config.hourFilterAllowed.includes(currentHour)) {
+        return false;
+      }
+    }
+
+    if (this.config.volFilterEnabled) {
+      const snapshot = volatilityTracker.getSnapshot(
+        this.config.volWindowMinutes,
+        this.config.volMinThreshold,
+        this.config.volMaxThreshold
+      );
+      if (snapshot.priceCount >= 3 && !snapshot.withinRange) {
+        this.log("VOL_FILTER", `Volatility ${snapshot.current.toFixed(3)} outside range [${snapshot.min}, ${snapshot.max}]. Skipping cycle.`);
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private computeEntryPrice(): { price: number; method: string } {
+    if (!this.config) return { price: 0.45, method: "fixed" };
+
+    if (!this.config.dynamicEntryEnabled) {
+      return { price: this.config.entryPrice, method: "fixed" };
+    }
+
+    const prices = volatilityTracker.getLatestPrices();
+    if (!prices) return { price: this.config.entryPrice, method: "fixed" };
+
+    const spread = Math.abs(prices.yesPrice - prices.noPrice);
+    let dynamicPrice: number;
+    if (spread > 0.2) {
+      dynamicPrice = this.config.dynamicEntryMin;
+    } else if (spread < 0.05) {
+      dynamicPrice = this.config.dynamicEntryMax;
+    } else {
+      const ratio = (spread - 0.05) / 0.15;
+      dynamicPrice = this.config.dynamicEntryMax - ratio * (this.config.dynamicEntryMax - this.config.dynamicEntryMin);
+    }
+
+    dynamicPrice = Math.max(this.config.dynamicEntryMin, Math.min(this.config.dynamicEntryMax, dynamicPrice));
+    dynamicPrice = Math.round(dynamicPrice * 100) / 100;
+
+    return { price: dynamicPrice, method: "dynamic" };
+  }
+
+  private computeTpPrice(): number {
+    if (!this.config) return 0.65;
+
+    if (!this.config.momentumTpEnabled) {
+      return this.config.tpPrice;
+    }
+
+    const momentum = volatilityTracker.getMomentum(this.config.momentumWindowMinutes);
+    const range = this.config.momentumTpMax - this.config.momentumTpMin;
+
+    let tp: number;
+    if (momentum.direction === "flat") {
+      tp = this.config.momentumTpMin;
+    } else {
+      tp = this.config.momentumTpMin + momentum.strength * range;
+    }
+
+    tp = Math.max(this.config.momentumTpMin, Math.min(this.config.momentumTpMax, tp));
+    tp = Math.round(tp * 100) / 100;
+
+    return tp;
+  }
+
+  private computeOrderSize(tokenYes: string): number {
+    if (!this.config) return 5;
+
+    if (!this.config.dynamicSizeEnabled) {
+      return this.config.orderSize;
+    }
+
+    const vol = volatilityTracker.getVolatility(this.config.volWindowMinutes);
+    const minSize = this.config.dynamicSizeMin;
+    const maxSize = this.config.dynamicSizeMax;
+
+    let size: number;
+    if (vol < 0.5) {
+      size = minSize;
+    } else if (vol > 3) {
+      size = maxSize;
+    } else {
+      const ratio = (vol - 0.5) / 2.5;
+      size = minSize + ratio * (maxSize - minSize);
+    }
+
+    size = Math.max(minSize, Math.min(maxSize, size));
+    return Math.round(size);
+  }
+
+  private async startNewCycle(windowStart: Date, slotKey: string, tokenYes: string, tokenNo: string, negRisk: boolean, tickSize: string): Promise<void> {
     this.cycleCounter++;
     const cycleNumber = this.cycleCounter;
+
+    const entry = this.computeEntryPrice();
+    const tp = this.computeTpPrice();
+    const orderSize = this.computeOrderSize(tokenYes);
+    const vol = volatilityTracker.getVolatility(this.config?.volWindowMinutes ?? 15);
 
     const [row] = await db.insert(dualEntryCycles).values({
       cycleNumber,
@@ -110,10 +277,19 @@ export class DualEntry5mEngine {
       windowStart,
       windowEnd: new Date(windowStart.getTime() + WINDOW_DURATION_MS),
       isDryRun: this.config!.isDryRun,
+      hourOfDay: new Date().getUTCHours(),
+      dayOfWeek: new Date().getUTCDay(),
+      btcVolatility: vol,
+      entryMethod: entry.method,
+      actualEntryPrice: entry.price,
+      actualTpPrice: tp,
+      actualOrderSize: orderSize,
+      marketTokenYes: tokenYes,
+      marketTokenNo: tokenNo,
       logs: [],
     }).returning();
 
-    this.currentCycle = {
+    const cycle: CycleContext = {
       cycleId: row.id,
       cycleNumber,
       windowStart,
@@ -126,214 +302,235 @@ export class DualEntry5mEngine {
       scratchFilled: false,
       logs: [],
       timers: [],
+      actualEntryPrice: entry.price,
+      actualTpPrice: tp,
+      actualOrderSize: orderSize,
+      btcVolatility: vol,
+      entryMethod: entry.method,
+      marketTokenYes: tokenYes,
+      marketTokenNo: tokenNo,
     };
 
-    this.logCycle("CYCLE_START", `Cycle #${cycleNumber} armed for window ${windowStart.toISOString()}`);
-    await this.placeEntryOrders();
+    this.currentCycles.set(slotKey, cycle);
+    this.logCycle(cycle, "CYCLE_START", `Cycle #${cycleNumber} armed. Entry: ${entry.price} (${entry.method}), TP: ${tp}, Size: ${orderSize}, Vol: ${vol.toFixed(3)}, Slot: ${slotKey}`);
+    await this.placeEntryOrders(cycle, tokenYes, tokenNo, negRisk, tickSize);
   }
 
-  private async processCycleState(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
+  private async processCycleState(cycle: CycleContext, slotKey: string): Promise<void> {
+    if (!this.config) return;
     const now = Date.now();
-    const windowMs = this.currentCycle.windowStart.getTime();
+    const windowMs = cycle.windowStart.getTime();
     const cfg = this.config;
 
-    switch (this.currentCycle.state) {
+    switch (cycle.state) {
       case "ARMED":
       case "ENTRY_WORKING": {
         const refreshTime = windowMs - cfg.entryLeadSecondsRefresh * 1000;
         if (now >= refreshTime && now < windowMs) {
-          await this.refreshEntryOrders();
+          await this.refreshEntryOrders(cycle);
         }
-        await this.checkEntryFills();
+        await this.checkEntryFills(cycle);
         if (now >= windowMs + cfg.postStartCleanupSeconds * 1000) {
-          await this.postStartCleanup();
+          await this.postStartCleanup(cycle, slotKey);
         }
         break;
       }
 
       case "PARTIAL_FILL": {
         if (now >= windowMs + cfg.postStartCleanupSeconds * 1000) {
-          await this.handlePartialFill();
+          await this.handlePartialFill(cycle, slotKey);
         }
-        await this.checkEntryFills();
+        await this.checkEntryFills(cycle);
         break;
       }
 
-      case "HEDGED": {
-        await this.checkExitFills();
-        break;
-      }
-
+      case "HEDGED":
       case "EXIT_WORKING": {
-        await this.checkExitFills();
+        await this.checkExitFills(cycle, slotKey);
         break;
       }
 
       case "DONE":
       case "CLEANUP":
       case "FAILSAFE": {
-        this.clearCycleTimers();
-        await this.persistCycle();
-        this.currentCycle = null;
+        this.clearCycleTimers(cycle);
+        await this.persistCycle(cycle);
+        this.currentCycles.delete(slotKey);
         break;
       }
     }
   }
 
-  private async placeEntryOrders(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
-    const cfg = this.config;
-    const dedupeYes = `entry-yes-${this.currentCycle.cycleNumber}`;
-    const dedupeNo = `entry-no-${this.currentCycle.cycleNumber}`;
+  private async placeEntryOrders(cycle: CycleContext, tokenYes: string, tokenNo: string, negRisk: boolean, tickSize: string): Promise<void> {
+    if (!this.config) return;
+    const entryPrice = cycle.actualEntryPrice ?? this.config.entryPrice;
+    const orderSize = cycle.actualOrderSize ?? this.config.orderSize;
+    const dedupeYes = `entry-yes-${cycle.cycleNumber}`;
+    const dedupeNo = `entry-no-${cycle.cycleNumber}`;
 
     if (this.dedupeKeys.has(dedupeYes) && this.dedupeKeys.has(dedupeNo)) return;
 
-    this.logCycle("PLACE_ENTRY", `Placing BUY YES @ ${cfg.entryPrice} & BUY NO @ ${cfg.entryPrice}, size=${cfg.orderSize}`);
+    this.logCycle(cycle, "PLACE_ENTRY", `Placing BUY YES @ ${entryPrice} & BUY NO @ ${entryPrice}, size=${orderSize}`);
 
     if (!this.dedupeKeys.has(dedupeYes)) {
       this.dedupeKeys.add(dedupeYes);
       const yesResult = await this.placeOrder({
-        tokenId: cfg.marketTokenYes,
+        tokenId: tokenYes,
         side: "BUY",
-        price: cfg.entryPrice,
-        size: cfg.orderSize,
+        price: entryPrice,
+        size: orderSize,
         label: "BUY YES entry",
+        negRisk,
+        tickSize,
       });
       if (yesResult.success) {
-        this.currentCycle.yesOrderId = dedupeYes;
-        this.currentCycle.yesExchangeOrderId = yesResult.orderID;
-        this.logCycle("ORDER_YES", `YES order placed: ${yesResult.orderID}`);
+        cycle.yesOrderId = dedupeYes;
+        cycle.yesExchangeOrderId = yesResult.orderID;
+        this.logCycle(cycle, "ORDER_YES", `YES order placed: ${yesResult.orderID}`);
       } else {
-        this.logCycle("ORDER_YES_FAIL", `YES order failed: ${yesResult.errorMsg}`);
+        this.logCycle(cycle, "ORDER_YES_FAIL", `YES order failed: ${yesResult.errorMsg}`);
       }
     }
 
     if (!this.dedupeKeys.has(dedupeNo)) {
       this.dedupeKeys.add(dedupeNo);
       const noResult = await this.placeOrder({
-        tokenId: cfg.marketTokenNo,
+        tokenId: tokenNo,
         side: "BUY",
-        price: cfg.entryPrice,
-        size: cfg.orderSize,
+        price: entryPrice,
+        size: orderSize,
         label: "BUY NO entry",
+        negRisk,
+        tickSize,
       });
       if (noResult.success) {
-        this.currentCycle.noOrderId = dedupeNo;
-        this.currentCycle.noExchangeOrderId = noResult.orderID;
-        this.logCycle("ORDER_NO", `NO order placed: ${noResult.orderID}`);
+        cycle.noOrderId = dedupeNo;
+        cycle.noExchangeOrderId = noResult.orderID;
+        this.logCycle(cycle, "ORDER_NO", `NO order placed: ${noResult.orderID}`);
       } else {
-        this.logCycle("ORDER_NO_FAIL", `NO order failed: ${noResult.errorMsg}`);
+        this.logCycle(cycle, "ORDER_NO_FAIL", `NO order failed: ${noResult.errorMsg}`);
       }
     }
 
-    await this.transitionState("ENTRY_WORKING");
+    await this.transitionState(cycle, "ENTRY_WORKING");
   }
 
-  private async refreshEntryOrders(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
-    const dedupeRefresh = `refresh-${this.currentCycle.cycleNumber}`;
+  private async refreshEntryOrders(cycle: CycleContext): Promise<void> {
+    if (!this.config) return;
+    const dedupeRefresh = `refresh-${cycle.cycleNumber}`;
     if (this.dedupeKeys.has(dedupeRefresh)) return;
     this.dedupeKeys.add(dedupeRefresh);
 
     const cfg = this.config;
-    this.logCycle("REFRESH", "T-30s refresh: checking unfilled orders");
+    const entryPrice = cycle.actualEntryPrice ?? cfg.entryPrice;
+    const orderSize = cycle.actualOrderSize ?? cfg.orderSize;
+    const tokenYes = cycle.marketTokenYes ?? cfg.marketTokenYes;
+    const tokenNo = cycle.marketTokenNo ?? cfg.marketTokenNo;
 
-    if (!this.currentCycle.yesFilled && this.currentCycle.yesExchangeOrderId) {
-      await this.cancelOrder(this.currentCycle.yesExchangeOrderId, "refresh YES");
-      const newDedupeYes = `refresh-yes-${this.currentCycle.cycleNumber}`;
-      this.dedupeKeys.add(newDedupeYes);
+    this.logCycle(cycle, "REFRESH", "T-30s refresh: checking unfilled orders");
+
+    if (!cycle.yesFilled && cycle.yesExchangeOrderId) {
+      await this.cancelOrder(cycle.yesExchangeOrderId, "refresh YES");
+      this.dedupeKeys.add(`refresh-yes-${cycle.cycleNumber}`);
       const yesResult = await this.placeOrder({
-        tokenId: cfg.marketTokenYes,
+        tokenId: tokenYes,
         side: "BUY",
-        price: cfg.entryPrice,
-        size: cfg.orderSize,
+        price: entryPrice,
+        size: orderSize,
         label: "BUY YES refresh",
+        negRisk: cfg.negRisk,
+        tickSize: cfg.tickSize,
       });
       if (yesResult.success) {
-        this.currentCycle.yesExchangeOrderId = yesResult.orderID;
-        this.logCycle("REFRESH_YES", `YES refreshed: ${yesResult.orderID}`);
+        cycle.yesExchangeOrderId = yesResult.orderID;
+        this.logCycle(cycle, "REFRESH_YES", `YES refreshed: ${yesResult.orderID}`);
       }
     }
 
-    if (!this.currentCycle.noFilled && this.currentCycle.noExchangeOrderId) {
-      await this.cancelOrder(this.currentCycle.noExchangeOrderId, "refresh NO");
-      const newDedupeNo = `refresh-no-${this.currentCycle.cycleNumber}`;
-      this.dedupeKeys.add(newDedupeNo);
+    if (!cycle.noFilled && cycle.noExchangeOrderId) {
+      await this.cancelOrder(cycle.noExchangeOrderId, "refresh NO");
+      this.dedupeKeys.add(`refresh-no-${cycle.cycleNumber}`);
       const noResult = await this.placeOrder({
-        tokenId: cfg.marketTokenNo,
+        tokenId: tokenNo,
         side: "BUY",
-        price: cfg.entryPrice,
-        size: cfg.orderSize,
+        price: entryPrice,
+        size: orderSize,
         label: "BUY NO refresh",
+        negRisk: cfg.negRisk,
+        tickSize: cfg.tickSize,
       });
       if (noResult.success) {
-        this.currentCycle.noExchangeOrderId = noResult.orderID;
-        this.logCycle("REFRESH_NO", `NO refreshed: ${noResult.orderID}`);
+        cycle.noExchangeOrderId = noResult.orderID;
+        this.logCycle(cycle, "REFRESH_NO", `NO refreshed: ${noResult.orderID}`);
       }
     }
   }
 
-  private async checkEntryFills(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
+  private async checkEntryFills(cycle: CycleContext): Promise<void> {
+    if (!this.config) return;
 
-    if (!this.currentCycle.yesFilled && this.currentCycle.yesExchangeOrderId) {
-      const status = await this.getOrderStatus(this.currentCycle.yesExchangeOrderId);
+    if (!cycle.yesFilled && cycle.yesExchangeOrderId) {
+      const status = await this.getOrderStatus(cycle.yesExchangeOrderId);
       if (status && parseFloat(status.size_matched || "0") > 0) {
-        this.currentCycle.yesFilled = true;
-        this.currentCycle.yesFilledSize = parseFloat(status.size_matched);
-        this.currentCycle.yesFilledPrice = this.config.entryPrice;
-        this.logCycle("FILL_YES", `YES filled: ${status.size_matched} @ ${this.config.entryPrice}`);
+        cycle.yesFilled = true;
+        cycle.yesFilledSize = parseFloat(status.size_matched);
+        cycle.yesFilledPrice = cycle.actualEntryPrice ?? this.config.entryPrice;
+        this.logCycle(cycle, "FILL_YES", `YES filled: ${status.size_matched} @ ${cycle.yesFilledPrice}`);
       }
     }
 
-    if (!this.currentCycle.noFilled && this.currentCycle.noExchangeOrderId) {
-      const status = await this.getOrderStatus(this.currentCycle.noExchangeOrderId);
+    if (!cycle.noFilled && cycle.noExchangeOrderId) {
+      const status = await this.getOrderStatus(cycle.noExchangeOrderId);
       if (status && parseFloat(status.size_matched || "0") > 0) {
-        this.currentCycle.noFilled = true;
-        this.currentCycle.noFilledSize = parseFloat(status.size_matched);
-        this.currentCycle.noFilledPrice = this.config.entryPrice;
-        this.logCycle("FILL_NO", `NO filled: ${status.size_matched} @ ${this.config.entryPrice}`);
+        cycle.noFilled = true;
+        cycle.noFilledSize = parseFloat(status.size_matched);
+        cycle.noFilledPrice = cycle.actualEntryPrice ?? this.config.entryPrice;
+        this.logCycle(cycle, "FILL_NO", `NO filled: ${status.size_matched} @ ${cycle.noFilledPrice}`);
       }
     }
 
-    if (this.currentCycle.yesFilled && this.currentCycle.noFilled) {
-      await this.transitionState("HEDGED");
-      await this.placeExitOrders();
-    } else if ((this.currentCycle.yesFilled || this.currentCycle.noFilled) && this.currentCycle.state === "ENTRY_WORKING") {
-      await this.transitionState("PARTIAL_FILL");
+    if (cycle.yesFilled && cycle.noFilled) {
+      await this.transitionState(cycle, "HEDGED");
+      await this.placeExitOrders(cycle);
+    } else if ((cycle.yesFilled || cycle.noFilled) && cycle.state === "ENTRY_WORKING") {
+      await this.transitionState(cycle, "PARTIAL_FILL");
     }
   }
 
-  private async placeExitOrders(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
+  private async placeExitOrders(cycle: CycleContext): Promise<void> {
+    if (!this.config) return;
     const cfg = this.config;
 
-    const winner = await this.determineWinner();
-    this.currentCycle.winnerSide = winner;
-    this.logCycle("HEDGED", `Both legs filled. Winner: ${winner}`);
+    const winner = await this.determineWinner(cycle);
+    cycle.winnerSide = winner;
+    this.logCycle(cycle, "HEDGED", `Both legs filled. Winner: ${winner}`);
 
-    const winnerToken = winner === "YES" ? cfg.marketTokenYes : cfg.marketTokenNo;
-    const loserToken = winner === "YES" ? cfg.marketTokenNo : cfg.marketTokenYes;
-    const winnerSize = winner === "YES" ? this.currentCycle.yesFilledSize : this.currentCycle.noFilledSize;
-    const loserSize = winner === "YES" ? this.currentCycle.noFilledSize : this.currentCycle.yesFilledSize;
+    const tokenYes = cycle.marketTokenYes ?? cfg.marketTokenYes;
+    const tokenNo = cycle.marketTokenNo ?? cfg.marketTokenNo;
+    const winnerToken = winner === "YES" ? tokenYes : tokenNo;
+    const loserToken = winner === "YES" ? tokenNo : tokenYes;
+    const winnerSize = winner === "YES" ? cycle.yesFilledSize : cycle.noFilledSize;
+    const loserSize = winner === "YES" ? cycle.noFilledSize : cycle.yesFilledSize;
+    const tpPrice = cycle.actualTpPrice ?? cfg.tpPrice;
 
-    const dedupeTp = `tp-${this.currentCycle.cycleNumber}`;
-    const dedupeScratch = `scratch-${this.currentCycle.cycleNumber}`;
+    const dedupeTp = `tp-${cycle.cycleNumber}`;
+    const dedupeScratch = `scratch-${cycle.cycleNumber}`;
 
     if (!this.dedupeKeys.has(dedupeTp)) {
       this.dedupeKeys.add(dedupeTp);
       const tpResult = await this.placeOrder({
         tokenId: winnerToken,
         side: "SELL",
-        price: cfg.tpPrice,
+        price: tpPrice,
         size: winnerSize,
         label: `SELL ${winner} TP`,
+        negRisk: cfg.negRisk,
+        tickSize: cfg.tickSize,
       });
       if (tpResult.success) {
-        this.currentCycle.tpOrderId = dedupeTp;
-        this.currentCycle.tpExchangeOrderId = tpResult.orderID;
-        this.logCycle("TP_PLACED", `TP order: SELL ${winner} ${winnerSize} @ ${cfg.tpPrice} (${tpResult.orderID})`);
+        cycle.tpOrderId = dedupeTp;
+        cycle.tpExchangeOrderId = tpResult.orderID;
+        this.logCycle(cycle, "TP_PLACED", `TP order: SELL ${winner} ${winnerSize} @ ${tpPrice} (${tpResult.orderID})`);
       }
     }
 
@@ -345,109 +542,128 @@ export class DualEntry5mEngine {
         price: cfg.scratchPrice,
         size: loserSize,
         label: `SELL ${winner === "YES" ? "NO" : "YES"} scratch`,
+        negRisk: cfg.negRisk,
+        tickSize: cfg.tickSize,
       });
       if (scratchResult.success) {
-        this.currentCycle.scratchOrderId = dedupeScratch;
-        this.currentCycle.scratchExchangeOrderId = scratchResult.orderID;
-        this.logCycle("SCRATCH_PLACED", `Scratch order: SELL loser ${loserSize} @ ${cfg.scratchPrice} (${scratchResult.orderID})`);
+        cycle.scratchOrderId = dedupeScratch;
+        cycle.scratchExchangeOrderId = scratchResult.orderID;
+        this.logCycle(cycle, "SCRATCH_PLACED", `Scratch order: SELL loser ${loserSize} @ ${cfg.scratchPrice} (${scratchResult.orderID})`);
       }
     }
 
-    await this.transitionState("EXIT_WORKING");
+    await this.transitionState(cycle, "EXIT_WORKING");
   }
 
-  private async checkExitFills(): Promise<void> {
-    if (!this.currentCycle) return;
+  private async checkExitFills(cycle: CycleContext, slotKey: string): Promise<void> {
+    if (!cycle) return;
 
-    if (!this.currentCycle.tpFilled && this.currentCycle.tpExchangeOrderId) {
-      const status = await this.getOrderStatus(this.currentCycle.tpExchangeOrderId);
+    if (!cycle.tpFilled && cycle.tpExchangeOrderId) {
+      const status = await this.getOrderStatus(cycle.tpExchangeOrderId);
       if (status && parseFloat(status.size_matched || "0") > 0) {
-        this.currentCycle.tpFilled = true;
-        this.logCycle("TP_FILLED", `TP filled`);
+        cycle.tpFilled = true;
+        this.logCycle(cycle, "TP_FILLED", `TP filled`);
+
+        if (this.config?.smartScratchCancel && cycle.scratchExchangeOrderId && !cycle.scratchFilled) {
+          this.logCycle(cycle, "SMART_CANCEL", "TP filled → cancelling scratch (smart cancel)");
+          await this.cancelOrder(cycle.scratchExchangeOrderId, "smart scratch cancel after TP fill");
+          cycle.scratchFilled = false;
+        }
       }
     }
 
-    if (!this.currentCycle.scratchFilled && this.currentCycle.scratchExchangeOrderId) {
-      const status = await this.getOrderStatus(this.currentCycle.scratchExchangeOrderId);
+    if (!cycle.scratchFilled && cycle.scratchExchangeOrderId) {
+      const status = await this.getOrderStatus(cycle.scratchExchangeOrderId);
       if (status && parseFloat(status.size_matched || "0") > 0) {
-        this.currentCycle.scratchFilled = true;
-        this.logCycle("SCRATCH_FILLED", `Scratch filled`);
+        cycle.scratchFilled = true;
+        this.logCycle(cycle, "SCRATCH_FILLED", `Scratch filled`);
       }
     }
 
-    if (this.currentCycle.tpFilled && this.currentCycle.scratchFilled) {
-      await this.completeCycle("FULL_EXIT");
-    } else if (this.currentCycle.tpFilled) {
-      await this.completeCycle("TP_HIT");
+    if (cycle.tpFilled && cycle.scratchFilled) {
+      await this.completeCycle(cycle, slotKey, "FULL_EXIT");
+    } else if (cycle.tpFilled && this.config?.smartScratchCancel) {
+      await this.completeCycle(cycle, slotKey, "TP_HIT");
+    } else if (cycle.tpFilled) {
+      await this.completeCycle(cycle, slotKey, "TP_HIT");
     }
   }
 
-  private async postStartCleanup(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
-    const dedupeCleanup = `cleanup-${this.currentCycle.cycleNumber}`;
+  private async postStartCleanup(cycle: CycleContext, slotKey: string): Promise<void> {
+    if (!this.config) return;
+    const dedupeCleanup = `cleanup-${cycle.cycleNumber}`;
     if (this.dedupeKeys.has(dedupeCleanup)) return;
     this.dedupeKeys.add(dedupeCleanup);
 
-    if (!this.currentCycle.yesFilled && !this.currentCycle.noFilled) {
-      this.logCycle("FLAT", "T+10s: No fills. Cancelling all and ending cycle.");
-      if (this.currentCycle.yesExchangeOrderId) await this.cancelOrder(this.currentCycle.yesExchangeOrderId, "cleanup YES");
-      if (this.currentCycle.noExchangeOrderId) await this.cancelOrder(this.currentCycle.noExchangeOrderId, "cleanup NO");
-      await this.completeCycle("FLAT");
+    if (!cycle.yesFilled && !cycle.noFilled) {
+      this.logCycle(cycle, "FLAT", "T+10s: No fills. Cancelling all and ending cycle.");
+      if (cycle.yesExchangeOrderId) await this.cancelOrder(cycle.yesExchangeOrderId, "cleanup YES");
+      if (cycle.noExchangeOrderId) await this.cancelOrder(cycle.noExchangeOrderId, "cleanup NO");
+      await this.completeCycle(cycle, slotKey, "FLAT");
     }
   }
 
-  private async handlePartialFill(): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
-    const dedupePartial = `partial-exit-${this.currentCycle.cycleNumber}`;
+  private async handlePartialFill(cycle: CycleContext, slotKey: string): Promise<void> {
+    if (!this.config) return;
+    const dedupePartial = `partial-exit-${cycle.cycleNumber}`;
     if (this.dedupeKeys.has(dedupePartial)) return;
     this.dedupeKeys.add(dedupePartial);
 
     const cfg = this.config;
-    this.logCycle("PARTIAL_CLEANUP", "T+10s: Only one leg filled. Cleaning up.");
+    const tokenYes = cycle.marketTokenYes ?? cfg.marketTokenYes;
+    const tokenNo = cycle.marketTokenNo ?? cfg.marketTokenNo;
 
-    if (this.currentCycle.yesFilled && !this.currentCycle.noFilled) {
-      if (this.currentCycle.noExchangeOrderId) await this.cancelOrder(this.currentCycle.noExchangeOrderId, "cancel unfilled NO");
+    this.logCycle(cycle, "PARTIAL_CLEANUP", "T+10s: Only one leg filled. Cleaning up.");
 
-      const bestBid = await this.getBestBid(cfg.marketTokenYes);
+    if (cycle.yesFilled && !cycle.noFilled) {
+      if (cycle.noExchangeOrderId) await this.cancelOrder(cycle.noExchangeOrderId, "cancel unfilled NO");
+
+      const bestBid = await this.getBestBid(tokenYes);
       const exitPrice = bestBid >= cfg.scratchPrice ? bestBid : cfg.scratchPrice;
 
       const result = await this.placeOrder({
-        tokenId: cfg.marketTokenYes,
+        tokenId: tokenYes,
         side: "SELL",
         price: exitPrice,
-        size: this.currentCycle.yesFilledSize,
+        size: cycle.yesFilledSize,
         label: "SELL YES (partial exit)",
+        negRisk: cfg.negRisk,
+        tickSize: cfg.tickSize,
       });
       if (result.success) {
-        this.logCycle("PARTIAL_EXIT", `Exiting YES @ ${exitPrice} (${result.orderID})`);
+        this.logCycle(cycle, "PARTIAL_EXIT", `Exiting YES @ ${exitPrice} (${result.orderID})`);
       }
-    } else if (this.currentCycle.noFilled && !this.currentCycle.yesFilled) {
-      if (this.currentCycle.yesExchangeOrderId) await this.cancelOrder(this.currentCycle.yesExchangeOrderId, "cancel unfilled YES");
+    } else if (cycle.noFilled && !cycle.yesFilled) {
+      if (cycle.yesExchangeOrderId) await this.cancelOrder(cycle.yesExchangeOrderId, "cancel unfilled YES");
 
-      const bestBid = await this.getBestBid(cfg.marketTokenNo);
+      const bestBid = await this.getBestBid(tokenNo);
       const exitPrice = bestBid >= cfg.scratchPrice ? bestBid : cfg.scratchPrice;
 
       const result = await this.placeOrder({
-        tokenId: cfg.marketTokenNo,
+        tokenId: tokenNo,
         side: "SELL",
         price: exitPrice,
-        size: this.currentCycle.noFilledSize,
+        size: cycle.noFilledSize,
         label: "SELL NO (partial exit)",
+        negRisk: cfg.negRisk,
+        tickSize: cfg.tickSize,
       });
       if (result.success) {
-        this.logCycle("PARTIAL_EXIT", `Exiting NO @ ${exitPrice} (${result.orderID})`);
+        this.logCycle(cycle, "PARTIAL_EXIT", `Exiting NO @ ${exitPrice} (${result.orderID})`);
       }
     }
 
-    await this.completeCycle("PARTIAL_EXIT");
+    await this.completeCycle(cycle, slotKey, "PARTIAL_EXIT");
   }
 
-  private async determineWinner(): Promise<"YES" | "NO"> {
+  private async determineWinner(cycle: CycleContext): Promise<"YES" | "NO"> {
     if (!this.config) return "YES";
+    const tokenYes = cycle.marketTokenYes ?? this.config.marketTokenYes;
+    const tokenNo = cycle.marketTokenNo ?? this.config.marketTokenNo;
 
     try {
-      const yesMid = await polymarketClient.fetchMidpoint(this.config.marketTokenYes);
-      const noMid = await polymarketClient.fetchMidpoint(this.config.marketTokenNo);
+      const yesMid = await polymarketClient.fetchMidpoint(tokenYes);
+      const noMid = await polymarketClient.fetchMidpoint(tokenNo);
       if (yesMid !== null && noMid !== null) {
         return yesMid >= noMid ? "YES" : "NO";
       }
@@ -466,93 +682,95 @@ export class DualEntry5mEngine {
     return 0;
   }
 
-  private async completeCycle(outcome: string): Promise<void> {
-    if (!this.currentCycle || !this.config) return;
+  private async completeCycle(cycle: CycleContext, slotKey: string, outcome: string): Promise<void> {
+    if (!this.config) return;
 
     let pnl = 0;
     const cfg = this.config;
+    const entryPrice = cycle.actualEntryPrice ?? cfg.entryPrice;
+    const tpPrice = cycle.actualTpPrice ?? cfg.tpPrice;
+
     if (outcome === "FULL_EXIT" || outcome === "TP_HIT") {
-      const entryCost = (this.currentCycle.yesFilledSize * cfg.entryPrice) + (this.currentCycle.noFilledSize * cfg.entryPrice);
-      const exitRevenue = (this.currentCycle.tpFilled ? (this.currentCycle.winnerSide === "YES" ? this.currentCycle.yesFilledSize : this.currentCycle.noFilledSize) * cfg.tpPrice : 0)
-        + (this.currentCycle.scratchFilled ? (this.currentCycle.winnerSide === "YES" ? this.currentCycle.noFilledSize : this.currentCycle.yesFilledSize) * cfg.scratchPrice : 0);
+      const entryCost = (cycle.yesFilledSize * entryPrice) + (cycle.noFilledSize * entryPrice);
+      const exitRevenue = (cycle.tpFilled ? (cycle.winnerSide === "YES" ? cycle.yesFilledSize : cycle.noFilledSize) * tpPrice : 0)
+        + (cycle.scratchFilled ? (cycle.winnerSide === "YES" ? cycle.noFilledSize : cycle.yesFilledSize) * cfg.scratchPrice : 0);
       pnl = exitRevenue - entryCost;
     }
 
-    this.currentCycle.outcome = outcome;
-    this.currentCycle.pnl = pnl;
-    this.logCycle("CYCLE_DONE", `Cycle complete: ${outcome}, PnL: $${pnl.toFixed(4)}`);
-    await this.transitionState("DONE");
+    cycle.outcome = outcome;
+    cycle.pnl = pnl;
+    this.logCycle(cycle, "CYCLE_DONE", `Cycle complete: ${outcome}, PnL: $${pnl.toFixed(4)}`);
+    await this.transitionState(cycle, "DONE");
   }
 
-  private async cleanupCycle(reason: string): Promise<void> {
-    if (!this.currentCycle) return;
-
-    if (this.currentCycle.yesExchangeOrderId && !this.currentCycle.yesFilled) {
-      await this.cancelOrder(this.currentCycle.yesExchangeOrderId, "cleanup");
+  private async cleanupCycle(cycle: CycleContext, reason: string): Promise<void> {
+    if (cycle.yesExchangeOrderId && !cycle.yesFilled) {
+      await this.cancelOrder(cycle.yesExchangeOrderId, "cleanup");
     }
-    if (this.currentCycle.noExchangeOrderId && !this.currentCycle.noFilled) {
-      await this.cancelOrder(this.currentCycle.noExchangeOrderId, "cleanup");
+    if (cycle.noExchangeOrderId && !cycle.noFilled) {
+      await this.cancelOrder(cycle.noExchangeOrderId, "cleanup");
     }
-    if (this.currentCycle.tpExchangeOrderId && !this.currentCycle.tpFilled) {
-      await this.cancelOrder(this.currentCycle.tpExchangeOrderId, "cleanup TP");
+    if (cycle.tpExchangeOrderId && !cycle.tpFilled) {
+      await this.cancelOrder(cycle.tpExchangeOrderId, "cleanup TP");
     }
-    if (this.currentCycle.scratchExchangeOrderId && !this.currentCycle.scratchFilled) {
-      await this.cancelOrder(this.currentCycle.scratchExchangeOrderId, "cleanup scratch");
+    if (cycle.scratchExchangeOrderId && !cycle.scratchFilled) {
+      await this.cancelOrder(cycle.scratchExchangeOrderId, "cleanup scratch");
     }
 
-    this.currentCycle.outcome = `CLEANUP: ${reason}`;
-    this.logCycle("CLEANUP", reason);
-    await this.transitionState("DONE");
+    cycle.outcome = `CLEANUP: ${reason}`;
+    this.logCycle(cycle, "CLEANUP", reason);
+    await this.transitionState(cycle, "DONE");
   }
 
-  private async transitionState(newState: CycleState): Promise<void> {
-    if (!this.currentCycle) return;
-    const oldState = this.currentCycle.state;
-    this.currentCycle.state = newState;
-    this.logCycle("STATE", `${oldState} → ${newState}`);
-    await this.persistCycle();
+  private async transitionState(cycle: CycleContext, newState: CycleState): Promise<void> {
+    const oldState = cycle.state;
+    cycle.state = newState;
+    this.logCycle(cycle, "STATE", `${oldState} → ${newState}`);
+    await this.persistCycle(cycle);
   }
 
-  private async persistCycle(): Promise<void> {
-    if (!this.currentCycle) return;
-    const c = this.currentCycle;
-
+  private async persistCycle(cycle: CycleContext): Promise<void> {
     try {
       await db.update(dualEntryCycles).set({
-        state: c.state,
-        yesOrderId: c.yesOrderId,
-        noOrderId: c.noOrderId,
-        yesExchangeOrderId: c.yesExchangeOrderId,
-        noExchangeOrderId: c.noExchangeOrderId,
-        yesFilled: c.yesFilled,
-        noFilled: c.noFilled,
-        yesFilledSize: c.yesFilledSize,
-        noFilledSize: c.noFilledSize,
-        yesFilledPrice: c.yesFilledPrice,
-        noFilledPrice: c.noFilledPrice,
-        winnerSide: c.winnerSide,
-        tpOrderId: c.tpOrderId,
-        scratchOrderId: c.scratchOrderId,
-        tpExchangeOrderId: c.tpExchangeOrderId,
-        scratchExchangeOrderId: c.scratchExchangeOrderId,
-        tpFilled: c.tpFilled,
-        scratchFilled: c.scratchFilled,
-        outcome: c.outcome,
-        pnl: c.pnl,
-        logs: c.logs as any,
+        state: cycle.state,
+        yesOrderId: cycle.yesOrderId,
+        noOrderId: cycle.noOrderId,
+        yesExchangeOrderId: cycle.yesExchangeOrderId,
+        noExchangeOrderId: cycle.noExchangeOrderId,
+        yesFilled: cycle.yesFilled,
+        noFilled: cycle.noFilled,
+        yesFilledSize: cycle.yesFilledSize,
+        noFilledSize: cycle.noFilledSize,
+        yesFilledPrice: cycle.yesFilledPrice,
+        noFilledPrice: cycle.noFilledPrice,
+        winnerSide: cycle.winnerSide,
+        tpOrderId: cycle.tpOrderId,
+        scratchOrderId: cycle.scratchOrderId,
+        tpExchangeOrderId: cycle.tpExchangeOrderId,
+        scratchExchangeOrderId: cycle.scratchExchangeOrderId,
+        tpFilled: cycle.tpFilled,
+        scratchFilled: cycle.scratchFilled,
+        outcome: cycle.outcome,
+        pnl: cycle.pnl,
+        logs: cycle.logs as any,
+        actualEntryPrice: cycle.actualEntryPrice,
+        actualTpPrice: cycle.actualTpPrice,
+        actualOrderSize: cycle.actualOrderSize,
+        btcVolatility: cycle.btcVolatility,
+        entryMethod: cycle.entryMethod,
         updatedAt: new Date(),
-      }).where(eq(dualEntryCycles.id, c.cycleId));
+      }).where(eq(dualEntryCycles.id, cycle.cycleId));
     } catch (err: any) {
       console.error("[DualEntry5m] Persist cycle error:", err.message);
     }
   }
 
-  private async placeOrder(params: { tokenId: string; side: "BUY" | "SELL"; price: number; size: number; label: string }): Promise<{ success: boolean; orderID?: string; errorMsg?: string }> {
+  private async placeOrder(params: { tokenId: string; side: "BUY" | "SELL"; price: number; size: number; label: string; negRisk: boolean; tickSize: string }): Promise<{ success: boolean; orderID?: string; errorMsg?: string }> {
     if (!this.config) return { success: false, errorMsg: "No config" };
 
     if (this.config.isDryRun) {
       const fakeId = `dry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      this.logCycle("DRY_ORDER", `[DRY-RUN] ${params.label}: ${params.side} ${params.size} @ $${params.price} → ${fakeId}`);
+      console.log(`[DualEntry5m] [DRY_ORDER] ${params.label}: ${params.side} ${params.size} @ $${params.price} → ${fakeId}`);
       return { success: true, orderID: fakeId };
     }
 
@@ -561,8 +779,8 @@ export class DualEntry5mEngine {
       side: params.side,
       price: params.price,
       size: params.size,
-      negRisk: this.config.negRisk,
-      tickSize: this.config.tickSize,
+      negRisk: params.negRisk,
+      tickSize: params.tickSize,
     });
   }
 
@@ -570,15 +788,15 @@ export class DualEntry5mEngine {
     if (!this.config) return;
 
     if (this.config.isDryRun) {
-      this.logCycle("DRY_CANCEL", `[DRY-RUN] Cancel ${exchangeOrderId} (${reason})`);
+      console.log(`[DualEntry5m] [DRY_CANCEL] Cancel ${exchangeOrderId} (${reason})`);
       return;
     }
 
     try {
       await liveTradingClient.cancelOrder(exchangeOrderId);
-      this.logCycle("CANCEL", `Cancelled ${exchangeOrderId} (${reason})`);
+      console.log(`[DualEntry5m] [CANCEL] Cancelled ${exchangeOrderId} (${reason})`);
     } catch (err: any) {
-      this.logCycle("CANCEL_FAIL", `Cancel failed ${exchangeOrderId}: ${err.message}`);
+      console.error(`[DualEntry5m] [CANCEL_FAIL] Cancel failed ${exchangeOrderId}: ${err.message}`);
     }
   }
 
@@ -599,19 +817,16 @@ export class DualEntry5mEngine {
     return new Date(nextBoundary);
   }
 
-  private clearCycleTimers(): void {
-    if (!this.currentCycle) return;
-    for (const t of this.currentCycle.timers) {
+  private clearCycleTimers(cycle: CycleContext): void {
+    for (const t of cycle.timers) {
       clearTimeout(t);
     }
-    this.currentCycle.timers = [];
+    cycle.timers = [];
   }
 
-  private logCycle(event: string, detail: string, data?: any): void {
+  private logCycle(cycle: CycleContext, event: string, detail: string, data?: any): void {
     const entry: CycleLogEntry = { ts: Date.now(), event, detail, data };
-    if (this.currentCycle) {
-      this.currentCycle.logs.push(entry);
-    }
+    cycle.logs.push(entry);
     console.log(`[DualEntry5m] [${event}] ${detail}`);
   }
 
@@ -639,6 +854,25 @@ export class DualEntry5mEngine {
       exitTtlSeconds: c.exitTtlSeconds,
       orderSize: c.orderSize,
       isDryRun: c.isDryRun,
+      smartScratchCancel: c.smartScratchCancel,
+      volFilterEnabled: c.volFilterEnabled,
+      volMinThreshold: c.volMinThreshold,
+      volMaxThreshold: c.volMaxThreshold,
+      volWindowMinutes: c.volWindowMinutes,
+      dynamicEntryEnabled: c.dynamicEntryEnabled,
+      dynamicEntryMin: c.dynamicEntryMin,
+      dynamicEntryMax: c.dynamicEntryMax,
+      momentumTpEnabled: c.momentumTpEnabled,
+      momentumTpMin: c.momentumTpMin,
+      momentumTpMax: c.momentumTpMax,
+      momentumWindowMinutes: c.momentumWindowMinutes,
+      dynamicSizeEnabled: c.dynamicSizeEnabled,
+      dynamicSizeMin: c.dynamicSizeMin,
+      dynamicSizeMax: c.dynamicSizeMax,
+      hourFilterEnabled: c.hourFilterEnabled,
+      hourFilterAllowed: (c.hourFilterAllowed as number[]) || [],
+      multiMarketEnabled: c.multiMarketEnabled,
+      additionalMarkets: (c.additionalMarkets as MarketSlot[]) || [],
     };
   }
 

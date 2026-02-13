@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../../db";
 import { dualEntryConfig, dualEntryCycles, updateDualEntryConfigSchema } from "@shared/schema";
-import { desc } from "drizzle-orm";
+import { desc, sql, eq, and, isNotNull } from "drizzle-orm";
 import { dualEntry5mEngine } from "./engine";
 
 export const dualEntryRouter = Router();
@@ -70,8 +70,93 @@ dualEntryRouter.get("/status", async (_req, res) => {
 
 dualEntryRouter.get("/cycles", async (_req, res) => {
   try {
-    const cycles = await db.select().from(dualEntryCycles).orderBy(desc(dualEntryCycles.createdAt)).limit(20);
+    const cycles = await db.select().from(dualEntryCycles).orderBy(desc(dualEntryCycles.createdAt)).limit(50);
     res.json(cycles);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+dualEntryRouter.get("/analytics", async (_req, res) => {
+  try {
+    const completedCycles = await db.select().from(dualEntryCycles)
+      .where(and(
+        eq(dualEntryCycles.state, "DONE"),
+        isNotNull(dualEntryCycles.hourOfDay),
+        isNotNull(dualEntryCycles.outcome),
+      ))
+      .orderBy(desc(dualEntryCycles.createdAt))
+      .limit(500);
+
+    const hourlyStats: Record<number, { total: number; wins: number; pnl: number; avgVol: number; volCount: number }> = {};
+    for (let h = 0; h < 24; h++) {
+      hourlyStats[h] = { total: 0, wins: 0, pnl: 0, avgVol: 0, volCount: 0 };
+    }
+
+    let totalCycles = 0;
+    let totalWins = 0;
+    let totalPnl = 0;
+    let totalFlat = 0;
+    let totalPartial = 0;
+
+    for (const c of completedCycles) {
+      const hour = c.hourOfDay ?? 0;
+      const isWin = c.outcome === "TP_HIT" || c.outcome === "FULL_EXIT";
+      const pnl = c.pnl ?? 0;
+
+      hourlyStats[hour].total++;
+      if (isWin) hourlyStats[hour].wins++;
+      hourlyStats[hour].pnl += pnl;
+      if (c.btcVolatility != null) {
+        hourlyStats[hour].avgVol += c.btcVolatility;
+        hourlyStats[hour].volCount++;
+      }
+
+      totalCycles++;
+      if (isWin) totalWins++;
+      totalPnl += pnl;
+      if (c.outcome === "FLAT") totalFlat++;
+      if (c.outcome === "PARTIAL_EXIT") totalPartial++;
+    }
+
+    for (const h of Object.keys(hourlyStats)) {
+      const s = hourlyStats[parseInt(h)];
+      if (s.volCount > 0) s.avgVol = s.avgVol / s.volCount;
+    }
+
+    const dayStats: Record<number, { total: number; wins: number; pnl: number }> = {};
+    for (let d = 0; d < 7; d++) {
+      dayStats[d] = { total: 0, wins: 0, pnl: 0 };
+    }
+    for (const c of completedCycles) {
+      const day = c.dayOfWeek ?? 0;
+      dayStats[day].total++;
+      if (c.outcome === "TP_HIT" || c.outcome === "FULL_EXIT") dayStats[day].wins++;
+      dayStats[day].pnl += c.pnl ?? 0;
+    }
+
+    const entryMethodStats: Record<string, { total: number; wins: number; pnl: number }> = {};
+    for (const c of completedCycles) {
+      const method = c.entryMethod ?? "fixed";
+      if (!entryMethodStats[method]) entryMethodStats[method] = { total: 0, wins: 0, pnl: 0 };
+      entryMethodStats[method].total++;
+      if (c.outcome === "TP_HIT" || c.outcome === "FULL_EXIT") entryMethodStats[method].wins++;
+      entryMethodStats[method].pnl += c.pnl ?? 0;
+    }
+
+    res.json({
+      summary: {
+        totalCycles,
+        totalWins,
+        winRate: totalCycles > 0 ? (totalWins / totalCycles * 100).toFixed(1) : "0",
+        totalPnl: totalPnl.toFixed(4),
+        totalFlat,
+        totalPartial,
+      },
+      hourlyStats,
+      dayStats,
+      entryMethodStats,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

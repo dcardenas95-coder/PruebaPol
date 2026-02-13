@@ -33,6 +33,13 @@ export interface CycleContext {
   pnl?: number;
   logs: CycleLogEntry[];
   timers: NodeJS.Timeout[];
+  actualEntryPrice?: number;
+  actualTpPrice?: number;
+  actualOrderSize?: number;
+  btcVolatility?: number;
+  entryMethod?: string;
+  marketTokenYes?: string;
+  marketTokenNo?: string;
 }
 
 export interface StrategyConfig {
@@ -50,6 +57,34 @@ export interface StrategyConfig {
   exitTtlSeconds: number;
   orderSize: number;
   isDryRun: boolean;
+  smartScratchCancel: boolean;
+  volFilterEnabled: boolean;
+  volMinThreshold: number;
+  volMaxThreshold: number;
+  volWindowMinutes: number;
+  dynamicEntryEnabled: boolean;
+  dynamicEntryMin: number;
+  dynamicEntryMax: number;
+  momentumTpEnabled: boolean;
+  momentumTpMin: number;
+  momentumTpMax: number;
+  momentumWindowMinutes: number;
+  dynamicSizeEnabled: boolean;
+  dynamicSizeMin: number;
+  dynamicSizeMax: number;
+  hourFilterEnabled: boolean;
+  hourFilterAllowed: number[];
+  multiMarketEnabled: boolean;
+  additionalMarkets: MarketSlot[];
+}
+
+export interface MarketSlot {
+  tokenYes: string;
+  tokenNo: string;
+  slug: string;
+  question: string;
+  negRisk: boolean;
+  tickSize: string;
 }
 
 export interface EngineStatus {
@@ -57,4 +92,15 @@ export interface EngineStatus {
   currentCycle: CycleContext | null;
   config: StrategyConfig | null;
   nextWindowStart: Date | null;
+  volatility: VolatilitySnapshot | null;
+  activeCycles: number;
+}
+
+export interface VolatilitySnapshot {
+  current: number;
+  windowMinutes: number;
+  withinRange: boolean;
+  min: number;
+  max: number;
+  priceCount: number;
 }
