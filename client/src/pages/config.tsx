@@ -7,11 +7,221 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Save, AlertTriangle, Shield, Crosshair, Gauge } from "lucide-react";
+import {
+  Save,
+  AlertTriangle,
+  Shield,
+  Crosshair,
+  Gauge,
+  Search,
+  Radio,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+} from "lucide-react";
 import type { BotConfig } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
+
+interface PolyMarket {
+  id: string;
+  conditionId: string;
+  question: string;
+  slug: string;
+  tokenIds: string[];
+  outcomes: string[];
+  outcomePrices: string[];
+  active: boolean;
+  closed: boolean;
+  endDate: string;
+  volume: number;
+  volume24hr: number;
+  liquidity: number;
+  negRisk: boolean;
+  tickSize: number;
+  minSize: number;
+  acceptingOrders: boolean;
+  description?: string;
+}
+
+function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketId?: string | null; currentMarketSlug?: string | null }) {
+  const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"btc" | "search">("btc");
+
+  const { data: btcMarkets, isLoading: btcLoading } = useQuery<PolyMarket[]>({
+    queryKey: ["/api/markets/btc"],
+  });
+
+  const { data: searchResults, isLoading: searchLoading, refetch: doSearch } = useQuery<PolyMarket[]>({
+    queryKey: ["/api/markets/search", searchQuery],
+    queryFn: async () => {
+      const res = await fetch(`/api/markets/search?q=${encodeURIComponent(searchQuery)}`);
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+    enabled: false,
+  });
+
+  const selectMutation = useMutation({
+    mutationFn: async (market: { tokenId: string; marketSlug: string; question: string }) => {
+      return apiRequest("POST", "/api/markets/select", market);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      toast({ title: "Market selected - live data connected" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to select market", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSearch = () => {
+    if (searchQuery.trim()) {
+      setSearchMode("search");
+      doSearch();
+    }
+  };
+
+  const handleSelectMarket = (market: PolyMarket, tokenIndex: number) => {
+    const tokenId = market.tokenIds[tokenIndex];
+    if (!tokenId) return;
+    selectMutation.mutate({
+      tokenId,
+      marketSlug: market.slug,
+      question: `${market.question} (${market.outcomes[tokenIndex]})`,
+    });
+  };
+
+  const markets = searchMode === "search" && searchResults ? searchResults : btcMarkets || [];
+  const loading = searchMode === "search" ? searchLoading : btcLoading;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Radio className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">Polymarket Connection</CardTitle>
+          {currentMarketId && (
+            <Badge variant="default" className="ml-auto" data-testid="badge-connected">
+              <CheckCircle2 className="w-3 h-3 mr-1" />
+              Connected
+            </Badge>
+          )}
+          {!currentMarketId && (
+            <Badge variant="secondary" className="ml-auto" data-testid="badge-disconnected">
+              Not Connected
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {currentMarketSlug && (
+          <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate" data-testid="text-current-market">
+                {currentMarketSlug}
+              </p>
+              <p className="text-xs text-muted-foreground">Active market - receiving live data</p>
+            </div>
+            <a
+              href={`https://polymarket.com/event/${currentMarketSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0"
+            >
+              <ExternalLink className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+            </a>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search markets (e.g. Bitcoin, Ethereum, Trump...)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              className="pl-9"
+              data-testid="input-market-search"
+            />
+          </div>
+          <Button onClick={handleSearch} variant="secondary" data-testid="button-search-markets">
+            Search
+          </Button>
+          <Button
+            onClick={() => { setSearchMode("btc"); setSearchQuery(""); }}
+            variant="outline"
+            data-testid="button-btc-markets"
+          >
+            BTC
+          </Button>
+        </div>
+
+        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+          {loading && (
+            <div className="flex items-center justify-center p-6">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!loading && markets.length === 0 && (
+            <div className="text-sm text-muted-foreground text-center p-6">
+              No markets found. Try a different search.
+            </div>
+          )}
+          {!loading && markets.map((market) => (
+            <div
+              key={market.id || market.conditionId}
+              className="border rounded-md p-3 space-y-2"
+              data-testid={`card-market-${market.id}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-snug">{market.question}</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-xs text-muted-foreground">
+                      Vol: ${(market.volume || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      24h: ${(market.volume24hr || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Liq: ${(market.liquidity || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {market.tokenIds?.map((tokenId, idx) => {
+                  const isSelected = tokenId === currentMarketId;
+                  const outcome = market.outcomes?.[idx] || `Token ${idx + 1}`;
+                  const price = market.outcomePrices?.[idx] || "?";
+                  return (
+                    <Button
+                      key={tokenId}
+                      size="sm"
+                      variant={isSelected ? "default" : "outline"}
+                      onClick={() => handleSelectMarket(market, idx)}
+                      disabled={selectMutation.isPending}
+                      data-testid={`button-select-${market.id}-${idx}`}
+                    >
+                      {isSelected && <CheckCircle2 className="w-3 h-3 mr-1" />}
+                      {outcome} ({parseFloat(price) ? `$${parseFloat(price).toFixed(2)}` : price})
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Configuration() {
   const { toast } = useToast();
@@ -29,7 +239,6 @@ export default function Configuration() {
     maxDailyLoss: 50,
     maxConsecutiveLosses: 3,
     orderSize: 10,
-    currentMarketSlug: "",
   });
 
   useEffect(() => {
@@ -43,7 +252,6 @@ export default function Configuration() {
         maxDailyLoss: config.maxDailyLoss,
         maxConsecutiveLosses: config.maxConsecutiveLosses,
         orderSize: config.orderSize,
-        currentMarketSlug: config.currentMarketSlug || "",
       });
     }
   }, [config]);
@@ -91,7 +299,7 @@ export default function Configuration() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Configuration</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Strategy parameters and risk management settings
+            Strategy parameters, market selection, and risk management
           </p>
         </div>
         <Button onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-config">
@@ -99,6 +307,11 @@ export default function Configuration() {
           Save Changes
         </Button>
       </div>
+
+      <MarketSelector
+        currentMarketId={config?.currentMarketId}
+        currentMarketSlug={config?.currentMarketSlug}
+      />
 
       <Card>
         <CardHeader className="pb-3">
@@ -133,16 +346,6 @@ export default function Configuration() {
                 value={formState.orderSize}
                 onChange={(e) => setFormState((s) => ({ ...s, orderSize: parseFloat(e.target.value) || 10 }))}
                 data-testid="input-order-size"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="marketSlug">Market Slug</Label>
-              <Input
-                id="marketSlug"
-                placeholder="e.g., btc-5min-up-or-down"
-                value={formState.currentMarketSlug}
-                onChange={(e) => setFormState((s) => ({ ...s, currentMarketSlug: e.target.value }))}
-                data-testid="input-market-slug"
               />
             </div>
           </div>

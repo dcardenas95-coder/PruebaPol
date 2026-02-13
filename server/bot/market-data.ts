@@ -1,7 +1,50 @@
 import type { MarketData } from "@shared/schema";
+import { polymarketClient } from "./polymarket-client";
 
 export class MarketDataModule {
   private lastData: MarketData | null = null;
+  private currentTokenId: string | null = null;
+  private useSimulation = false;
+  private consecutiveErrors = 0;
+  private readonly MAX_ERRORS_BEFORE_FALLBACK = 5;
+
+  setTokenId(tokenId: string | null): void {
+    this.currentTokenId = tokenId;
+    this.consecutiveErrors = 0;
+    this.useSimulation = false;
+  }
+
+  getTokenId(): string | null {
+    return this.currentTokenId;
+  }
+
+  isUsingLiveData(): boolean {
+    return !!this.currentTokenId && !this.useSimulation;
+  }
+
+  async fetchLiveData(): Promise<MarketData | null> {
+    if (!this.currentTokenId) return null;
+
+    try {
+      const data = await polymarketClient.fetchMarketData(this.currentTokenId);
+      if (data) {
+        this.consecutiveErrors = 0;
+        this.lastData = data;
+        return data;
+      }
+      this.consecutiveErrors++;
+    } catch (error: any) {
+      this.consecutiveErrors++;
+      console.error("[MarketData] Live data error:", error.message);
+    }
+
+    if (this.consecutiveErrors >= this.MAX_ERRORS_BEFORE_FALLBACK) {
+      console.warn("[MarketData] Too many errors, falling back to simulation");
+      this.useSimulation = true;
+    }
+
+    return null;
+  }
 
   generateSimulatedData(): MarketData {
     const basePrice = 0.45 + Math.random() * 0.1;
@@ -22,6 +65,14 @@ export class MarketDataModule {
     };
 
     return this.lastData;
+  }
+
+  async getData(): Promise<MarketData> {
+    if (this.currentTokenId && !this.useSimulation) {
+      const liveData = await this.fetchLiveData();
+      if (liveData) return liveData;
+    }
+    return this.generateSimulatedData();
   }
 
   getLastData(): MarketData | null {

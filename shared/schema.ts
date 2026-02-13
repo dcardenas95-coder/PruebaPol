@@ -157,4 +157,6 @@ export type BotStatus = {
   dailyPnl: number;
   consecutiveLosses: number;
   uptime: number;
+  isLiveData?: boolean;
+  currentTokenId?: string | null;
 };

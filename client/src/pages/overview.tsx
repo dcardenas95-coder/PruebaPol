@@ -16,6 +16,9 @@ import {
   Zap,
   ArrowUpDown,
   BarChart3,
+  Radio,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import type { BotStatus } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -105,7 +108,7 @@ function StateTimeline({ state }: { state: string }) {
   );
 }
 
-function MarketDataPanel({ data }: { data: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null }) {
+function MarketDataPanel({ data, isLive, marketSlug }: { data: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null; isLive?: boolean; marketSlug?: string | null }) {
   if (!data) {
     return (
       <Card>
@@ -125,8 +128,17 @@ function MarketDataPanel({ data }: { data: { bestBid: number; bestAsk: number; s
   return (
     <Card data-testid="card-market-data">
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-        <CardTitle className="text-sm font-medium">Market Data</CardTitle>
-        <Badge variant="secondary">Live</Badge>
+        <div className="flex flex-col gap-0.5">
+          <CardTitle className="text-sm font-medium">Market Data</CardTitle>
+          {marketSlug && (
+            <span className="text-xs text-muted-foreground truncate max-w-[200px]" data-testid="text-market-slug">
+              {marketSlug}
+            </span>
+          )}
+        </div>
+        <Badge variant={isLive ? "default" : "secondary"} data-testid="badge-data-source">
+          {isLive ? "LIVE" : "Simulated"}
+        </Badge>
       </CardHeader>
       <CardContent className="p-4 pt-0">
         <div className="grid grid-cols-2 gap-3">
@@ -239,9 +251,22 @@ export default function Overview() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Asymmetric market making for Polymarket BTC 5-min markets
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-sm text-muted-foreground">
+              Asymmetric market making for Polymarket
+            </p>
+            {status?.isLiveData ? (
+              <Badge variant="outline" className="text-xs gap-1" data-testid="badge-live-connection">
+                <Wifi className="w-3 h-3 text-emerald-500" />
+                Live
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs gap-1" data-testid="badge-sim-connection">
+                <WifiOff className="w-3 h-3 text-muted-foreground" />
+                Simulated
+              </Badge>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -366,7 +391,11 @@ export default function Overview() {
           </CardContent>
         </Card>
 
-        <MarketDataPanel data={status?.marketData ?? null} />
+        <MarketDataPanel
+          data={status?.marketData ?? null}
+          isLive={status?.isLiveData}
+          marketSlug={status?.config?.currentMarketSlug}
+        />
       </div>
 
       <Card data-testid="card-risk-overview">

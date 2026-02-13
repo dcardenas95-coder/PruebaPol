@@ -34,12 +34,17 @@ export class StrategyEngine {
     this.startTime = Date.now();
     this.marketCycleStart = Date.now();
 
+    if (config.currentMarketId) {
+      this.marketData.setTokenId(config.currentMarketId);
+    }
+
     await storage.updateBotConfig({ isActive: true, currentState: "MAKING" });
 
+    const dataSource = this.marketData.isUsingLiveData() ? "LIVE Polymarket data" : "simulated data";
     await storage.createEvent({
       type: "STATE_CHANGE",
-      message: "Bot started - entering MAKING state",
-      data: { state: "MAKING", isPaperTrading: config.isPaperTrading },
+      message: `Bot started - entering MAKING state (${dataSource})`,
+      data: { state: "MAKING", isPaperTrading: config.isPaperTrading, dataSource },
       level: "info",
     });
 
@@ -91,7 +96,7 @@ export class StrategyEngine {
       const config = await storage.getBotConfig();
       if (!config || !config.isActive || config.killSwitchActive) return;
 
-      const data = this.marketData.generateSimulatedData();
+      const data = await this.marketData.getData();
       const elapsed = Date.now() - this.marketCycleStart;
       const remaining = this.MARKET_DURATION - elapsed;
 
@@ -305,10 +310,18 @@ export class StrategyEngine {
     }
   }
 
+  getMarketDataModule(): MarketDataModule {
+    return this.marketData;
+  }
+
   async getStatus(): Promise<BotStatus> {
     const config = await storage.getBotConfig();
     const activeOrders = await this.orderManager.getActiveOrders();
     const positions = await storage.getPositions();
+
+    if (config?.currentMarketId && this.marketData.getTokenId() !== config.currentMarketId) {
+      this.marketData.setTokenId(config.currentMarketId);
+    }
 
     return {
       config: config || {
@@ -334,6 +347,8 @@ export class StrategyEngine {
       dailyPnl: this.riskManager.getDailyPnl(),
       consecutiveLosses: this.riskManager.getConsecutiveLosses(),
       uptime: Date.now() - this.startTime,
+      isLiveData: this.marketData.isUsingLiveData(),
+      currentTokenId: this.marketData.getTokenId(),
     };
   }
 }
