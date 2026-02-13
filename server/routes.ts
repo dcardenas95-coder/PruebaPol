@@ -7,11 +7,14 @@ import { polymarketClient } from "./bot/polymarket-client";
 import { liveTradingClient } from "./bot/live-trading-client";
 import { polymarketWs } from "./bot/polymarket-ws";
 import { apiRateLimiter } from "./bot/rate-limiter";
+import { dualEntryRouter } from "./strategies/dualEntry5m/routes";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  app.use("/api/strategies/dual-entry-5m", dualEntryRouter);
 
   app.get("/api/bot/status", async (_req, res) => {
     try {

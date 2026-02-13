@@ -122,6 +122,91 @@ export type InsertPnlRecord = z.infer<typeof insertPnlRecordSchema>;
 export type BotEvent = typeof botEvents.$inferSelect;
 export type InsertBotEvent = z.infer<typeof insertBotEventSchema>;
 
+export const dualEntryCycleStateEnum = pgEnum("dual_entry_cycle_state", [
+  "IDLE", "ARMED", "ENTRY_WORKING", "PARTIAL_FILL", "HEDGED", "EXIT_WORKING", "DONE", "CLEANUP", "FAILSAFE"
+]);
+
+export const dualEntryConfig = pgTable("dual_entry_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  isActive: boolean("is_active").notNull().default(false),
+  isDryRun: boolean("is_dry_run").notNull().default(true),
+  marketTokenYes: text("market_token_yes"),
+  marketTokenNo: text("market_token_no"),
+  marketSlug: text("market_slug"),
+  marketQuestion: text("market_question"),
+  negRisk: boolean("neg_risk").notNull().default(false),
+  tickSize: text("tick_size").notNull().default("0.01"),
+  entryPrice: real("entry_price").notNull().default(0.45),
+  tpPrice: real("tp_price").notNull().default(0.65),
+  scratchPrice: real("scratch_price").notNull().default(0.45),
+  entryLeadSecondsPrimary: integer("entry_lead_seconds_primary").notNull().default(180),
+  entryLeadSecondsRefresh: integer("entry_lead_seconds_refresh").notNull().default(30),
+  postStartCleanupSeconds: integer("post_start_cleanup_seconds").notNull().default(10),
+  exitTtlSeconds: integer("exit_ttl_seconds").notNull().default(120),
+  orderSize: real("order_size").notNull().default(5),
+  maxConcurrentCycles: integer("max_concurrent_cycles").notNull().default(1),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const dualEntryCycles = pgTable("dual_entry_cycles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cycleNumber: integer("cycle_number").notNull(),
+  state: dualEntryCycleStateEnum("state").notNull().default("IDLE"),
+  windowStart: timestamp("window_start").notNull(),
+  windowEnd: timestamp("window_end"),
+  yesOrderId: text("yes_order_id"),
+  noOrderId: text("no_order_id"),
+  yesExchangeOrderId: text("yes_exchange_order_id"),
+  noExchangeOrderId: text("no_exchange_order_id"),
+  yesFilled: boolean("yes_filled").notNull().default(false),
+  noFilled: boolean("no_filled").notNull().default(false),
+  yesFilledSize: real("yes_filled_size").notNull().default(0),
+  noFilledSize: real("no_filled_size").notNull().default(0),
+  yesFilledPrice: real("yes_filled_price"),
+  noFilledPrice: real("no_filled_price"),
+  winnerSide: text("winner_side"),
+  tpOrderId: text("tp_order_id"),
+  scratchOrderId: text("scratch_order_id"),
+  tpExchangeOrderId: text("tp_exchange_order_id"),
+  scratchExchangeOrderId: text("scratch_exchange_order_id"),
+  tpFilled: boolean("tp_filled").notNull().default(false),
+  scratchFilled: boolean("scratch_filled").notNull().default(false),
+  outcome: text("outcome"),
+  pnl: real("pnl"),
+  logs: jsonb("logs").notNull().default([]),
+  isDryRun: boolean("is_dry_run").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertDualEntryConfigSchema = createInsertSchema(dualEntryConfig).omit({ id: true, updatedAt: true });
+export const insertDualEntryCycleSchema = createInsertSchema(dualEntryCycles).omit({ id: true, createdAt: true, updatedAt: true });
+export type DualEntryConfig = typeof dualEntryConfig.$inferSelect;
+export type InsertDualEntryConfig = z.infer<typeof insertDualEntryConfigSchema>;
+export type DualEntryCycle = typeof dualEntryCycles.$inferSelect;
+export type InsertDualEntryCycle = z.infer<typeof insertDualEntryCycleSchema>;
+
+export const updateDualEntryConfigSchema = z.object({
+  isActive: z.boolean().optional(),
+  isDryRun: z.boolean().optional(),
+  marketTokenYes: z.string().optional(),
+  marketTokenNo: z.string().optional(),
+  marketSlug: z.string().optional(),
+  marketQuestion: z.string().optional(),
+  negRisk: z.boolean().optional(),
+  tickSize: z.string().optional(),
+  entryPrice: z.number().min(0.01).max(0.99).optional(),
+  tpPrice: z.number().min(0.01).max(0.99).optional(),
+  scratchPrice: z.number().min(0.01).max(0.99).optional(),
+  entryLeadSecondsPrimary: z.number().min(10).max(600).optional(),
+  entryLeadSecondsRefresh: z.number().min(5).max(300).optional(),
+  postStartCleanupSeconds: z.number().min(1).max(120).optional(),
+  exitTtlSeconds: z.number().min(30).max(600).optional(),
+  orderSize: z.number().min(1).max(10000).optional(),
+  maxConcurrentCycles: z.number().min(1).max(5).optional(),
+});
+export type UpdateDualEntryConfig = z.infer<typeof updateDualEntryConfigSchema>;
+
 export const updateBotConfigSchema = z.object({
   isActive: z.boolean().optional(),
   isPaperTrading: z.boolean().optional(),

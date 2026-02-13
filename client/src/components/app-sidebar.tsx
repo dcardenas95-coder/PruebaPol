@@ -7,6 +7,7 @@ import {
   TrendingUp,
   Activity,
   Zap,
+  ArrowUpDown,
 } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
@@ -32,6 +33,10 @@ const navItems = [
   { title: "PnL", url: "/pnl", icon: BarChart3 },
   { title: "Configuration", url: "/config", icon: Settings },
   { title: "Logs", url: "/logs", icon: ScrollText },
+];
+
+const strategyItems = [
+  { title: "5m Dual-Entry", url: "/strategies/dual-entry-5m", icon: ArrowUpDown },
 ];
 
 function StateIndicator({ state }: { state: string }) {
@@ -85,6 +90,26 @@ export function AppSidebar() {
                     }
                   >
                     <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase()}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Strategies</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {strategyItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.startsWith(item.url)}
+                  >
+                    <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>

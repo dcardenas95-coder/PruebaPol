@@ -14,6 +14,7 @@ import Positions from "@/pages/positions";
 import PnL from "@/pages/pnl";
 import Configuration from "@/pages/config";
 import Logs from "@/pages/logs";
+import DualEntry5m from "@/pages/dual-entry-5m";
 
 function Router() {
   return (
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/pnl" component={PnL} />
       <Route path="/config" component={Configuration} />
       <Route path="/logs" component={Logs} />
+      <Route path="/strategies/dual-entry-5m" component={DualEntry5m} />
       <Route component={NotFound} />
     </Switch>
   );
