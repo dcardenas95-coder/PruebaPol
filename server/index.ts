@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
+import { liveTradingClient } from "./bot/live-trading-client";
 
 const app = express();
 const httpServer = createServer(app);
@@ -67,6 +68,18 @@ app.use((req, res, next) => {
     await seedDatabase();
   } catch (e) {
     console.error("Seed error (non-fatal):", e);
+  }
+
+  if (process.env.POLYMARKET_PRIVATE_KEY) {
+    liveTradingClient.initialize().then((result) => {
+      if (result.success) {
+        console.log("[Startup] Wallet auto-initialized successfully");
+      } else {
+        console.log("[Startup] Wallet auto-init skipped:", result.error);
+      }
+    }).catch((err) => {
+      console.log("[Startup] Wallet auto-init failed (non-fatal):", err.message);
+    });
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

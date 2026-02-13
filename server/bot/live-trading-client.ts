@@ -33,6 +33,9 @@ export class LiveTradingClient {
   private initError: string | null = null;
 
   async initialize(): Promise<{ success: boolean; error?: string }> {
+    if (this.initialized) {
+      return { success: true };
+    }
     try {
       const privateKey = process.env.POLYMARKET_PRIVATE_KEY;
       if (!privateKey) {
