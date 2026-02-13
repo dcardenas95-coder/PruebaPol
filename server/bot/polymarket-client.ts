@@ -51,7 +51,10 @@ export class PolymarketClient {
       const params = new URLSearchParams({
         closed: "false",
         active: "true",
-        limit: "100",
+        limit: "200",
+        order: "volume24hr",
+        ascending: "false",
+        liquidity_num_min: "1000",
       });
 
       const response = await fetch(`${GAMMA_BASE}/markets?${params.toString()}`);
@@ -62,11 +65,13 @@ export class PolymarketClient {
 
       if (query) {
         const q = query.toLowerCase();
-        return allMarkets.filter(m => {
-          const question = (m.question || "").toLowerCase();
-          const desc = (m.description || "").toLowerCase();
-          return question.includes(q) || desc.includes(q);
-        });
+        return allMarkets
+          .filter(m => {
+            const question = (m.question || "").toLowerCase();
+            const desc = (m.description || "").toLowerCase();
+            return question.includes(q) || desc.includes(q);
+          })
+          .sort((a, b) => (b.volume24hr || 0) - (a.volume24hr || 0));
       }
 
       return allMarkets;
@@ -81,8 +86,7 @@ export class PolymarketClient {
       const allMarkets = await this.fetchMarkets();
       const btcMarkets = allMarkets.filter(m => {
         const q = (m.question || "").toLowerCase();
-        const desc = (m.description || "").toLowerCase();
-        return (q.includes("bitcoin") || q.includes("btc") || desc.includes("bitcoin") || desc.includes("btc"))
+        return (q.includes("bitcoin") || q.includes("btc"))
           && m.active && !m.closed && m.acceptingOrders;
       });
       return btcMarkets.sort((a, b) => (b.volume24hr || 0) - (a.volume24hr || 0));
