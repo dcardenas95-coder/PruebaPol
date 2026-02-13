@@ -541,7 +541,7 @@ export default function DualEntry5m() {
   const { data: status } = useQuery<EngineStatus>({ queryKey: ["/api/strategies/dual-entry-5m/status"], refetchInterval: 2000 });
   const { data: cycles } = useQuery<CycleData[]>({ queryKey: ["/api/strategies/dual-entry-5m/cycles"], refetchInterval: 5000 });
   const { data: analytics } = useQuery<AnalyticsData>({ queryKey: ["/api/strategies/dual-entry-5m/analytics"], refetchInterval: 15000 });
-  const { data: walletBalance } = useQuery<{ initialized: boolean; walletAddress: string | null; usdc: string | null }>({ queryKey: ["/api/trading/wallet-balance"], refetchInterval: 15000 });
+  const { data: walletBalance } = useQuery<{ initialized: boolean; walletAddress: string | null; usdc: string | null; walletType?: string; funderAddress?: string | null }>({ queryKey: ["/api/trading/wallet-balance"], refetchInterval: 15000 });
 
   const [form, setForm] = useState({
     entryPrice: 0.45, tpPrice: 0.65, scratchPrice: 0.45,
@@ -676,12 +676,17 @@ export default function DualEntry5m() {
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right space-y-1">
               {walletBalance?.initialized ? (
-                <Badge variant="outline" className="text-xs">
-                  <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-500" />
-                  {walletBalance.walletAddress?.slice(0, 6)}...{walletBalance.walletAddress?.slice(-4)}
-                </Badge>
+                <>
+                  <Badge variant="outline" className="text-xs">
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-500" />
+                    {walletBalance.walletAddress?.slice(0, 6)}...{walletBalance.walletAddress?.slice(-4)}
+                  </Badge>
+                  <p className="text-[10px] text-muted-foreground">
+                    {walletBalance.walletType === "proxy" ? "Proxy wallet (sig=1)" : "EOA (sig=0)"}
+                  </p>
+                </>
               ) : (
                 <Badge variant="secondary" className="text-xs">Wallet no conectada</Badge>
               )}

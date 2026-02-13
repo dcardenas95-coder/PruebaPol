@@ -517,12 +517,25 @@ export async function registerRoutes(
           usdc: null,
         });
       }
-      const collateral = await liveTradingClient.getCollateralBalance();
+      const [collateral, onChain] = await Promise.all([
+        liveTradingClient.getCollateralBalance(),
+        liveTradingClient.getOnChainUsdcBalance(),
+      ]);
+      const sigInfo = liveTradingClient.getSignatureInfo();
+      const sdkBalance = collateral ? collateral.balance : "0";
+      const onChainTotal = onChain ? onChain.total : null;
       res.json({
         initialized: true,
         walletAddress: liveTradingClient.getWalletAddress(),
-        usdc: collateral ? collateral.balance : "0",
+        usdc: onChainTotal || sdkBalance,
+        usdcSdk: sdkBalance,
+        usdcOnChain: onChainTotal,
+        usdcE: onChain?.usdcE || null,
+        usdcNative: onChain?.usdcNative || null,
         allowance: collateral ? collateral.allowance : "0",
+        signatureType: sigInfo.signatureType,
+        walletType: sigInfo.signatureType === 1 ? "proxy" : "EOA",
+        funderAddress: sigInfo.funderAddress,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

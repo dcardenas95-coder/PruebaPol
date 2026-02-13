@@ -1,12 +1,26 @@
 import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { Wallet } from "@ethersproject/wallet";
+import { JsonRpcProvider } from "@ethersproject/providers";
+import { Contract } from "@ethersproject/contracts";
 import { storage } from "../storage";
 import { apiRateLimiter } from "./rate-limiter";
 
+const POLYGON_RPC = "https://polygon-rpc.com";
+const USDC_E_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const USDC_NATIVE_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359";
+const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
+
 const CLOB_HOST = "https://clob.polymarket.com";
 const CHAIN_ID = 137;
-const SIGNATURE_TYPE = 0;
+
+function getSignatureType(): number {
+  return process.env.POLYMARKET_FUNDER_ADDRESS ? 1 : 0;
+}
+
+function getFunderAddress(): string | undefined {
+  return process.env.POLYMARKET_FUNDER_ADDRESS || undefined;
+}
 
 export interface LiveOrderResult {
   success: boolean;
@@ -49,7 +63,11 @@ export class LiveTradingClient {
 
       console.log(`[LiveTrading] Initializing with wallet: ${walletAddress}`);
 
-      const tempClient = new ClobClient(CLOB_HOST, CHAIN_ID, this.wallet);
+      const sigType = getSignatureType();
+      const funder = getFunderAddress();
+      console.log(`[LiveTrading] Signature type: ${sigType}${funder ? `, funder: ${funder}` : " (EOA)"}`);
+
+      const tempClient = new ClobClient(CLOB_HOST, CHAIN_ID, this.wallet, undefined, sigType, funder);
 
       try {
         this.creds = await tempClient.deriveApiKey();
@@ -65,7 +83,8 @@ export class LiveTradingClient {
         CHAIN_ID,
         this.wallet,
         this.creds,
-        SIGNATURE_TYPE,
+        sigType,
+        funder,
       );
 
       const ok = await this.client.getOk();
@@ -120,6 +139,10 @@ export class LiveTradingClient {
   async getBalanceAllowance(tokenId: string): Promise<BalanceInfo | null> {
     if (!this.client || !this.initialized) return null;
     try {
+      await this.client.updateBalanceAllowance({
+        asset_type: "CONDITIONAL",
+        token_id: tokenId,
+      } as any);
       const result = await this.client.getBalanceAllowance({
         asset_type: "CONDITIONAL",
         token_id: tokenId,
@@ -137,6 +160,9 @@ export class LiveTradingClient {
   async getCollateralBalance(): Promise<BalanceInfo | null> {
     if (!this.client || !this.initialized) return null;
     try {
+      await this.client.updateBalanceAllowance({
+        asset_type: "COLLATERAL",
+      } as any);
       const result = await this.client.getBalanceAllowance({
         asset_type: "COLLATERAL",
       } as any);
@@ -146,6 +172,44 @@ export class LiveTradingClient {
       };
     } catch (error: any) {
       console.error("[LiveTrading] Collateral balance check error:", error.message);
+      return null;
+    }
+  }
+
+  getSignatureInfo(): { signatureType: number; funderAddress: string | null } {
+    return {
+      signatureType: getSignatureType(),
+      funderAddress: getFunderAddress() || null,
+    };
+  }
+
+  async getOnChainUsdcBalance(): Promise<{ usdcE: string; usdcNative: string; total: string } | null> {
+    if (!this.wallet) return null;
+    try {
+      const provider = new JsonRpcProvider(POLYGON_RPC);
+      const address = await this.wallet.getAddress();
+
+      const usdcEContract = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
+      const usdcNativeContract = new Contract(USDC_NATIVE_ADDRESS, ERC20_ABI, provider);
+
+      const [balE, balNative] = await Promise.all([
+        usdcEContract.balanceOf(address).catch(() => BigInt(0)),
+        usdcNativeContract.balanceOf(address).catch(() => BigInt(0)),
+      ]);
+
+      const formatUsdc = (raw: any): string => {
+        const n = Number(raw) / 1e6;
+        return n.toFixed(2);
+      };
+
+      const totalRaw = Number(balE) + Number(balNative);
+      return {
+        usdcE: formatUsdc(balE),
+        usdcNative: formatUsdc(balNative),
+        total: (totalRaw / 1e6).toFixed(2),
+      };
+    } catch (error: any) {
+      console.error("[LiveTrading] On-chain USDC balance error:", error.message);
       return null;
     }
   }
