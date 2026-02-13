@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { MarketDataModule } from "./market-data";
 import { OrderManager } from "./order-manager";
 import { RiskManager } from "./risk-manager";
+import { liveTradingClient } from "./live-trading-client";
 import type { BotConfig, MarketData, BotStatus } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -38,13 +39,46 @@ export class StrategyEngine {
       this.marketData.setTokenId(config.currentMarketId);
     }
 
+    if (!config.isPaperTrading) {
+      if (!config.currentMarketId) {
+        await storage.createEvent({
+          type: "ERROR",
+          message: "Cannot start live trading without a market selected",
+          data: {},
+          level: "error",
+        });
+        return;
+      }
+
+      if (!liveTradingClient.isInitialized()) {
+        const result = await liveTradingClient.initialize();
+        if (!result.success) {
+          await storage.createEvent({
+            type: "ERROR",
+            message: `Cannot start live trading: ${result.error}`,
+            data: { error: result.error },
+            level: "error",
+          });
+          return;
+        }
+      }
+
+      await storage.createEvent({
+        type: "INFO",
+        message: "LIVE TRADING MODE - Real orders will be placed on Polymarket",
+        data: { wallet: liveTradingClient.getWalletAddress() },
+        level: "warn",
+      });
+    }
+
     await storage.updateBotConfig({ isActive: true, currentState: "MAKING" });
 
+    const mode = config.isPaperTrading ? "PAPER" : "LIVE";
     const dataSource = this.marketData.isUsingLiveData() ? "LIVE Polymarket data" : "simulated data";
     await storage.createEvent({
       type: "STATE_CHANGE",
-      message: `Bot started - entering MAKING state (${dataSource})`,
-      data: { state: "MAKING", isPaperTrading: config.isPaperTrading, dataSource },
+      message: `Bot started [${mode}] - entering MAKING state (${dataSource})`,
+      data: { state: "MAKING", isPaperTrading: config.isPaperTrading, dataSource, mode },
       level: "info",
     });
 
@@ -105,10 +139,18 @@ export class StrategyEngine {
         await this.transitionState(config.currentState as BotState, newState);
       }
 
-      const activeOrders = await this.orderManager.getActiveOrders();
-      for (const order of activeOrders) {
-        if (config.isPaperTrading) {
+      if (config.isPaperTrading) {
+        const activeOrders = await this.orderManager.getActiveOrders();
+        for (const order of activeOrders) {
           const result = await this.orderManager.simulateFill(order.id);
+          if (result.filled && result.pnl !== 0) {
+            this.riskManager.recordTradeResult(result.pnl);
+            await this.updateDailyPnl(result.pnl, result.pnl > 0);
+          }
+        }
+      } else {
+        const liveResults = await this.orderManager.pollLiveOrderStatuses();
+        for (const result of liveResults) {
           if (result.filled && result.pnl !== 0) {
             this.riskManager.recordTradeResult(result.pnl);
             await this.updateDailyPnl(result.pnl, result.pnl > 0);
@@ -208,6 +250,8 @@ export class StrategyEngine {
     if (!bestSide) return;
 
     const marketId = config.currentMarketId || "btc-5min-sim";
+    const negRisk = config.currentMarketNegRisk ?? false;
+    const tickSize = config.currentMarketTickSize ?? "0.01";
 
     if (bestSide === "BUY") {
       await this.orderManager.placeOrder({
@@ -216,6 +260,8 @@ export class StrategyEngine {
         price: data.bestBid,
         size: config.orderSize,
         isPaperTrade: config.isPaperTrading,
+        negRisk,
+        tickSize,
       });
     }
 
@@ -230,6 +276,8 @@ export class StrategyEngine {
           price: exitPrice,
           size: Math.min(pos.size, config.orderSize),
           isPaperTrade: config.isPaperTrading,
+          negRisk,
+          tickSize,
         });
       }
     }
@@ -239,6 +287,9 @@ export class StrategyEngine {
     const positions = await storage.getPositions();
     const activeOrders = await this.orderManager.getActiveOrders();
     if (activeOrders.length >= 2) return;
+
+    const negRisk = config.currentMarketNegRisk ?? false;
+    const tickSize = config.currentMarketTickSize ?? "0.01";
 
     for (const pos of positions) {
       if (pos.size > 0) {
@@ -252,6 +303,8 @@ export class StrategyEngine {
           price: Math.max(0.01, exitPrice),
           size: parseFloat((pos.size * 0.5).toFixed(2)),
           isPaperTrade: config.isPaperTrading,
+          negRisk,
+          tickSize,
         });
       }
     }
@@ -261,6 +314,9 @@ export class StrategyEngine {
     const positions = await storage.getPositions();
     const activeOrders = await this.orderManager.getActiveOrders();
     if (activeOrders.length >= 2) return;
+
+    const negRisk = config.currentMarketNegRisk ?? false;
+    const tickSize = config.currentMarketTickSize ?? "0.01";
 
     for (const pos of positions) {
       if (pos.size > 0) {
@@ -274,6 +330,8 @@ export class StrategyEngine {
           price: Math.max(0.01, hedgePrice),
           size: pos.size,
           isPaperTrade: config.isPaperTrading,
+          negRisk,
+          tickSize,
         });
       }
     }
@@ -314,6 +372,10 @@ export class StrategyEngine {
     return this.marketData;
   }
 
+  getOrderManager(): OrderManager {
+    return this.orderManager;
+  }
+
   async getStatus(): Promise<BotStatus> {
     const config = await storage.getBotConfig();
     const activeOrders = await this.orderManager.getActiveOrders();
@@ -339,6 +401,8 @@ export class StrategyEngine {
         killSwitchActive: false,
         currentMarketId: null,
         currentMarketSlug: null,
+        currentMarketNegRisk: false,
+        currentMarketTickSize: "0.01",
         updatedAt: new Date(),
       },
       marketData: this.marketData.getLastData(),

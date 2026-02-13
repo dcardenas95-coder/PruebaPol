@@ -28,6 +28,8 @@ export const botConfig = pgTable("bot_config", {
   killSwitchActive: boolean("kill_switch_active").notNull().default(false),
   currentMarketId: text("current_market_id"),
   currentMarketSlug: text("current_market_slug"),
+  currentMarketNegRisk: boolean("current_market_neg_risk").notNull().default(false),
+  currentMarketTickSize: text("current_market_tick_size").notNull().default("0.01"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -134,6 +136,8 @@ export const updateBotConfigSchema = z.object({
   killSwitchActive: z.boolean().optional(),
   currentMarketId: z.string().optional(),
   currentMarketSlug: z.string().optional(),
+  currentMarketNegRisk: z.boolean().optional(),
+  currentMarketTickSize: z.string().optional(),
 });
 
 export type UpdateBotConfig = z.infer<typeof updateBotConfigSchema>;

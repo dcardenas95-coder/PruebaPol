@@ -18,6 +18,9 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  Zap,
+  ShieldAlert,
+  Wallet,
 } from "lucide-react";
 import type { BotConfig } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -65,7 +68,7 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
   });
 
   const selectMutation = useMutation({
-    mutationFn: async (market: { tokenId: string; marketSlug: string; question: string }) => {
+    mutationFn: async (market: { tokenId: string; marketSlug: string; question: string; negRisk: boolean; tickSize: number }) => {
       return apiRequest("POST", "/api/markets/select", market);
     },
     onSuccess: () => {
@@ -92,6 +95,8 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
       tokenId,
       marketSlug: market.slug,
       question: `${market.question} (${market.outcomes[tokenIndex]})`,
+      negRisk: market.negRisk ?? false,
+      tickSize: market.tickSize || 0.01,
     });
   };
 
@@ -322,18 +327,49 @@ export default function Configuration() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label>Paper Trading Mode</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Simulate trades using real market data without risking capital
-              </p>
+            <div className="flex items-center gap-3">
+              {formState.isPaperTrading ? (
+                <Shield className="w-5 h-5 text-muted-foreground" />
+              ) : (
+                <Zap className="w-5 h-5 text-amber-500" />
+              )}
+              <div>
+                <Label>
+                  {formState.isPaperTrading ? "Paper Trading Mode" : "LIVE Trading Mode"}
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formState.isPaperTrading
+                    ? "Simulate trades using real market data without risking capital"
+                    : "Real orders are placed on Polymarket with real money"
+                  }
+                </p>
+              </div>
             </div>
             <Switch
               checked={formState.isPaperTrading}
-              onCheckedChange={(v) => setFormState((s) => ({ ...s, isPaperTrading: v }))}
+              onCheckedChange={(v) => {
+                if (!v) {
+                  if (!window.confirm("⚠️ ADVERTENCIA: Estás a punto de activar el trading en vivo.\n\nEsto significa que se colocarán órdenes REALES en Polymarket con dinero real.\n\n¿Estás seguro de que deseas continuar?")) {
+                    return;
+                  }
+                }
+                setFormState((s) => ({ ...s, isPaperTrading: v }));
+              }}
               data-testid="switch-paper-trading"
             />
           </div>
+          {!formState.isPaperTrading && (
+            <div className="flex items-start gap-3 p-3 rounded-md bg-amber-500/10 border border-amber-500/30">
+              <ShieldAlert className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-amber-400">Live Trading Active</p>
+                <p className="text-xs text-muted-foreground">
+                  Real orders will be placed on Polymarket. Make sure you have sufficient USDC balance,
+                  your risk limits are properly configured, and the kill switch is easily accessible.
+                </p>
+              </div>
+            </div>
+          )}
           <Separator />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">

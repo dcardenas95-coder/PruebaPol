@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { strategyEngine } from "./bot/strategy-engine";
 import { updateBotConfigSchema } from "@shared/schema";
 import { polymarketClient } from "./bot/polymarket-client";
+import { liveTradingClient } from "./bot/live-trading-client";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -52,19 +53,31 @@ export async function registerRoutes(
 
       const data = parsed.data;
 
-      if (data.isActive === true) {
-        await strategyEngine.start();
-      } else if (data.isActive === false) {
-        await strategyEngine.stop();
+      if (data.isPaperTrading === false) {
+        const currentConfig = await storage.getBotConfig();
+        if (!currentConfig?.currentMarketId) {
+          return res.status(400).json({ error: "Cannot enable live trading without a market selected" });
+        }
+        if (!process.env.POLYMARKET_PRIVATE_KEY) {
+          return res.status(400).json({ error: "Cannot enable live trading: POLYMARKET_PRIVATE_KEY not configured" });
+        }
       }
 
       const keysToUpdate = { ...data };
+      const shouldStart = data.isActive === true;
+      const shouldStop = data.isActive === false;
       if (data.isActive !== undefined) {
         delete (keysToUpdate as any).isActive;
       }
 
       if (Object.keys(keysToUpdate).length > 0) {
         await storage.updateBotConfig(keysToUpdate);
+      }
+
+      if (shouldStart) {
+        await strategyEngine.start();
+      } else if (shouldStop) {
+        await strategyEngine.stop();
       }
 
       const config = await storage.getBotConfig();
@@ -101,16 +114,11 @@ export async function registerRoutes(
   app.post("/api/orders/:id/cancel", async (req, res) => {
     try {
       const { id } = req.params;
-      const order = await storage.updateOrderStatus(id, "CANCELLED");
+      const orderManager = strategyEngine.getOrderManager();
+      const order = await orderManager.cancelOrder(id);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
       }
-      await storage.createEvent({
-        type: "ORDER_CANCELLED",
-        message: `Order ${order.clientOrderId} manually cancelled`,
-        data: { orderId: id },
-        level: "info",
-      });
       res.json(order);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -119,13 +127,8 @@ export async function registerRoutes(
 
   app.post("/api/orders/cancel-all", async (_req, res) => {
     try {
-      await storage.cancelAllOpenOrders();
-      await storage.createEvent({
-        type: "ORDER_CANCELLED",
-        message: "All open orders manually cancelled",
-        data: {},
-        level: "warn",
-      });
+      const orderManager = strategyEngine.getOrderManager();
+      await orderManager.cancelAllOrders();
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -250,7 +253,7 @@ export async function registerRoutes(
 
   app.post("/api/markets/select", async (req, res) => {
     try {
-      const { tokenId, marketSlug, question } = req.body;
+      const { tokenId, marketSlug, question, negRisk, tickSize } = req.body;
       if (!tokenId) {
         return res.status(400).json({ error: "tokenId is required" });
       }
@@ -263,6 +266,8 @@ export async function registerRoutes(
       await storage.updateBotConfig({
         currentMarketId: tokenId,
         currentMarketSlug: marketSlug || null,
+        currentMarketNegRisk: negRisk ?? false,
+        currentMarketTickSize: tickSize ? String(tickSize) : "0.01",
       });
 
       strategyEngine.getMarketDataModule().setTokenId(tokenId);
@@ -309,7 +314,49 @@ export async function registerRoutes(
         hasMarketSelected: !!config?.currentMarketId,
         isPaperTrading: config?.isPaperTrading ?? true,
         currentMarketSlug: config?.currentMarketSlug || null,
+        liveClientInitialized: liveTradingClient.isInitialized(),
+        liveClientError: liveTradingClient.getInitError(),
+        walletAddress: liveTradingClient.getWalletAddress(),
       });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/trading/init-live", async (_req, res) => {
+    try {
+      if (liveTradingClient.isInitialized()) {
+        return res.json({
+          success: true,
+          message: "Already initialized",
+          wallet: liveTradingClient.getWalletAddress(),
+        });
+      }
+      const result = await liveTradingClient.initialize();
+      if (result.success) {
+        res.json({
+          success: true,
+          wallet: liveTradingClient.getWalletAddress(),
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error,
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/trading/balance/:tokenId", async (req, res) => {
+    try {
+      const { tokenId } = req.params;
+      if (!liveTradingClient.isInitialized()) {
+        return res.status(400).json({ error: "Live trading client not initialized" });
+      }
+      const balance = await liveTradingClient.getBalanceAllowance(tokenId);
+      res.json(balance || { balance: "0", allowance: "0" });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

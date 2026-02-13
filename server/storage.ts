@@ -22,6 +22,7 @@ export interface IStorage {
   getActiveOrders(): Promise<Order[]>;
   createOrder(order: InsertOrder): Promise<Order>;
   updateOrderStatus(id: string, status: string, filledSize?: number): Promise<Order | undefined>;
+  updateOrderExchangeId(id: string, exchangeOrderId: string): Promise<Order | undefined>;
   cancelAllOpenOrders(): Promise<void>;
 
   getFills(): Promise<Fill[]>;
@@ -106,6 +107,14 @@ export class DatabaseStorage implements IStorage {
     if (filledSize !== undefined) updateData.filledSize = filledSize;
     const [updated] = await db.update(orders)
       .set(updateData)
+      .where(eq(orders.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async updateOrderExchangeId(id: string, exchangeOrderId: string): Promise<Order | undefined> {
+    const [updated] = await db.update(orders)
+      .set({ exchangeOrderId, updatedAt: new Date() })
       .where(eq(orders.id, id))
       .returning();
     return updated || undefined;
