@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { DualEntryConfig } from "@shared/schema";
 
 interface PolyMarket {
@@ -107,6 +107,174 @@ interface AnalyticsData {
   hourlyStats: Record<string, { total: number; wins: number; pnl: number; avgVol: number }>;
   dayStats: Record<string, { total: number; wins: number; pnl: number }>;
   entryMethodStats: Record<string, { total: number; wins: number; pnl: number }>;
+}
+
+interface Market5mData {
+  slug: string;
+  title: string;
+  question: string;
+  tokenUp: string;
+  tokenDown: string;
+  outcomePrices: number[];
+  negRisk: boolean;
+  tickSize: number;
+  intervalStart: number;
+  intervalEnd: number;
+  timeRemainingMs: number;
+  active: boolean;
+  closed: boolean;
+  acceptingOrders: boolean;
+}
+
+function Market5mPanel({ config, form, setForm }: { config: DualEntryConfig | undefined; form: any; setForm: (fn: (s: any) => any) => void }) {
+  const { toast } = useToast();
+  const { data: current5m, isLoading } = useQuery<{ found: boolean; market: Market5mData | null; next: { slug: string; startsInMs: number } }>({
+    queryKey: ["/api/strategies/dual-entry-5m/5m/current", form.autoRotate5mAsset],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/dual-entry-5m/5m/current?asset=${form.autoRotate5mAsset || "btc"}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    refetchInterval: 5000,
+  });
+
+  const [countdown, setCountdown] = useState("");
+  useEffect(() => {
+    if (!current5m?.market) return;
+    const tick = () => {
+      const remaining = current5m.market!.intervalEnd * 1000 - Date.now();
+      if (remaining <= 0) {
+        setCountdown("00:00");
+        queryClient.invalidateQueries({ queryKey: ["/api/strategies/dual-entry-5m/5m/current"] });
+      } else {
+        const m = Math.floor(remaining / 60000);
+        const s = Math.floor((remaining % 60000) / 1000);
+        setCountdown(`${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [current5m?.market?.intervalEnd]);
+
+  const selectMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/strategies/dual-entry-5m/5m/select?asset=${form.autoRotate5mAsset || "btc"}`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ["/api/strategies/dual-entry-5m/config"] });
+        toast({ title: "Mercado 5M seleccionado", description: data.market?.question });
+      } else {
+        toast({ title: "Error", description: "No se pudo seleccionar", variant: "destructive" });
+      }
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const market = current5m?.market;
+  const isCurrentMarket = market && config?.marketTokenYes === market.tokenUp;
+  const assets = ["btc", "eth", "sol", "xrp", "doge"];
+
+  return (
+    <Card className="border-blue-500/20">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-blue-400" />
+          <CardTitle className="text-sm font-medium">Mercado 5 Minutos (Auto-descubrimiento)</CardTitle>
+          <Badge variant="outline" className="text-[10px] ml-auto">LIVE</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <Label>Auto-rotaci\u00f3n de mercado 5M</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Descubre y selecciona autom\u00e1ticamente el mercado de 5 minutos activo. El bot rota al siguiente intervalo cuando termina el actual.
+            </p>
+          </div>
+          <Switch checked={form.autoRotate5m} onCheckedChange={(v) => setForm((s: any) => ({ ...s, autoRotate5m: v }))} data-testid="switch-auto-rotate-5m" />
+        </div>
+
+        <div className="flex gap-1.5">
+          {assets.map(a => (
+            <Button
+              key={a}
+              size="sm"
+              variant={form.autoRotate5mAsset === a ? "default" : "outline"}
+              className="text-xs h-7 px-2"
+              onClick={() => setForm((s: any) => ({ ...s, autoRotate5mAsset: a }))}
+              data-testid={`button-5m-asset-${a}`}
+            >
+              {a.toUpperCase()}
+            </Button>
+          ))}
+        </div>
+
+        {isLoading && <div className="flex justify-center p-3"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
+
+        {market && (
+          <div className={`border rounded-md p-3 space-y-2 ${isCurrentMarket ? "border-emerald-500/50 bg-emerald-500/5" : "border-blue-500/30"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate" data-testid="text-5m-question">{market.question}</p>
+                <p className="text-xs text-muted-foreground">{market.slug}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <p className="text-lg font-bold font-mono tabular-nums" data-testid="text-5m-countdown">{countdown}</p>
+                  <p className="text-[10px] text-muted-foreground">restante</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 text-xs">
+              <div className="text-center p-1.5 rounded bg-muted/30">
+                <p className="font-mono font-bold text-emerald-400">{(market.outcomePrices[0] * 100).toFixed(1)}\u00a2</p>
+                <p className="text-muted-foreground">Up</p>
+              </div>
+              <div className="text-center p-1.5 rounded bg-muted/30">
+                <p className="font-mono font-bold text-red-400">{(market.outcomePrices[1] * 100).toFixed(1)}\u00a2</p>
+                <p className="text-muted-foreground">Down</p>
+              </div>
+              <div className="text-center p-1.5 rounded bg-muted/30">
+                <p className="font-mono">{market.negRisk ? "S\u00ed" : "No"}</p>
+                <p className="text-muted-foreground">negRisk</p>
+              </div>
+              <div className="text-center p-1.5 rounded bg-muted/30">
+                <p className="font-mono">{market.tickSize}</p>
+                <p className="text-muted-foreground">tick</p>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              {isCurrentMarket ? (
+                <Badge variant="default" className="text-xs" data-testid="badge-5m-connected">
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Conectado
+                </Badge>
+              ) : (
+                <Button size="sm" onClick={() => selectMutation.mutate()} disabled={selectMutation.isPending} data-testid="button-5m-select">
+                  {selectMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Zap className="w-3 h-3 mr-1" />}
+                  Conectar ahora
+                </Button>
+              )}
+              <a href={`https://polymarket.com/event/${market.slug}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                <ExternalLink className="w-3 h-3" /> Ver en Polymarket
+              </a>
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !market && (
+          <div className="text-center py-4 text-sm text-muted-foreground">
+            <AlertTriangle className="w-5 h-5 mx-auto mb-1 text-amber-400" />
+            No hay mercado 5M activo en este momento. Se crear\u00e1 uno nuevo pronto.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function MarketSelectorDE({ config }: { config: DualEntryConfig | undefined }) {
@@ -385,6 +553,7 @@ export default function DualEntry5m() {
     momentumTpEnabled: false, momentumTpMin: 0.55, momentumTpMax: 0.75, momentumWindowMinutes: 5,
     dynamicSizeEnabled: false, dynamicSizeMin: 3, dynamicSizeMax: 20,
     hourFilterEnabled: false, hourFilterAllowed: [] as number[],
+    autoRotate5m: false, autoRotate5mAsset: "btc",
   });
 
   useEffect(() => {
@@ -405,6 +574,8 @@ export default function DualEntry5m() {
         dynamicSizeMax: config.dynamicSizeMax,
         hourFilterEnabled: config.hourFilterEnabled,
         hourFilterAllowed: (config.hourFilterAllowed as number[]) || [],
+        autoRotate5m: config.autoRotate5m ?? false,
+        autoRotate5mAsset: config.autoRotate5mAsset ?? "btc",
       });
     }
   }, [config]);
@@ -520,6 +691,8 @@ export default function DualEntry5m() {
       </Card>
 
       {status?.currentCycle && <CycleTimeline cycle={status.currentCycle as any} />}
+
+      <Market5mPanel config={config} form={form} setForm={setForm} />
 
       <MarketSelectorDE config={config} />
 

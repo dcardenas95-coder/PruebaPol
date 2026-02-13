@@ -29,6 +29,11 @@ export class VolatilityTracker {
     }
   }
 
+  updateTokens(tokenYes: string, tokenNo: string) {
+    this.tokenYes = tokenYes;
+    this.tokenNo = tokenNo;
+  }
+
   private async fetchTick() {
     if (!this.tokenYes) return;
     try {

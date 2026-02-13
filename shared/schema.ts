@@ -164,6 +164,8 @@ export const dualEntryConfig = pgTable("dual_entry_config", {
   hourFilterAllowed: jsonb("hour_filter_allowed").notNull().default([]),
   multiMarketEnabled: boolean("multi_market_enabled").notNull().default(false),
   additionalMarkets: jsonb("additional_markets").notNull().default([]),
+  autoRotate5m: boolean("auto_rotate_5m").notNull().default(false),
+  autoRotate5mAsset: text("auto_rotate_5m_asset").notNull().default("btc"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -258,6 +260,8 @@ export const updateDualEntryConfigSchema = z.object({
     negRisk: z.boolean(),
     tickSize: z.string(),
   })).optional(),
+  autoRotate5m: z.boolean().optional(),
+  autoRotate5mAsset: z.string().optional(),
 });
 export type UpdateDualEntryConfig = z.infer<typeof updateDualEntryConfigSchema>;
 

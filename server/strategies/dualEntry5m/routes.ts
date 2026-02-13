@@ -3,6 +3,7 @@ import { db } from "../../db";
 import { dualEntryConfig, dualEntryCycles, updateDualEntryConfigSchema } from "@shared/schema";
 import { desc, sql, eq, and, isNotNull } from "drizzle-orm";
 import { dualEntry5mEngine } from "./engine";
+import { fetchCurrent5mMarket, fetchUpcoming5mMarkets, computeNextIntervalSlug, type AssetType } from "./market-5m-discovery";
 
 export const dualEntryRouter = Router();
 
@@ -157,6 +158,63 @@ dualEntryRouter.get("/analytics", async (_req, res) => {
       dayStats,
       entryMethodStats,
     });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+dualEntryRouter.get("/5m/current", async (req, res) => {
+  try {
+    const asset = (req.query.asset as AssetType) || "btc";
+    const market = await fetchCurrent5mMarket(asset);
+    if (!market) {
+      return res.json({ found: false, market: null, next: computeNextIntervalSlug(asset) });
+    }
+    res.json({ found: true, market, next: computeNextIntervalSlug(asset) });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+dualEntryRouter.get("/5m/upcoming", async (req, res) => {
+  try {
+    const asset = (req.query.asset as AssetType) || "btc";
+    const count = Math.min(parseInt(req.query.count as string) || 3, 5);
+    const markets = await fetchUpcoming5mMarkets(asset, count);
+    res.json({ markets, next: computeNextIntervalSlug(asset) });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+dualEntryRouter.post("/5m/select", async (req, res) => {
+  try {
+    const asset = (req.query.asset as AssetType) || "btc";
+    const market = await fetchCurrent5mMarket(asset);
+    if (!market) {
+      return res.status(404).json({ error: "No active 5m market found" });
+    }
+
+    const rows = await db.select().from(dualEntryConfig).limit(1);
+    const updateData = {
+      marketTokenYes: market.tokenUp,
+      marketTokenNo: market.tokenDown,
+      marketSlug: market.slug,
+      marketQuestion: market.question,
+      negRisk: market.negRisk,
+      tickSize: String(market.tickSize),
+      updatedAt: new Date(),
+    };
+
+    if (rows.length === 0) {
+      const [created] = await db.insert(dualEntryConfig).values(updateData).returning();
+      return res.json({ success: true, market, config: created });
+    }
+
+    const [updated] = await db.update(dualEntryConfig)
+      .set(updateData)
+      .returning();
+    res.json({ success: true, market, config: updated });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

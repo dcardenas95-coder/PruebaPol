@@ -76,6 +76,8 @@ export interface StrategyConfig {
   hourFilterAllowed: number[];
   multiMarketEnabled: boolean;
   additionalMarkets: MarketSlot[];
+  autoRotate5m: boolean;
+  autoRotate5mAsset: string;
 }
 
 export interface MarketSlot {

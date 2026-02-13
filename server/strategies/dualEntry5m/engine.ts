@@ -4,6 +4,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import { liveTradingClient } from "../../bot/live-trading-client";
 import { polymarketClient } from "../../bot/polymarket-client";
 import { volatilityTracker } from "./volatility-tracker";
+import { fetchCurrent5mMarket, type AssetType } from "./market-5m-discovery";
 import type { CycleState, CycleContext, CycleLogEntry, StrategyConfig, EngineStatus, MarketSlot } from "./types";
 
 const WINDOW_DURATION_MS = 5 * 60 * 1000;
@@ -15,12 +16,42 @@ export class DualEntry5mEngine {
   private mainLoopInterval: ReturnType<typeof setInterval> | null = null;
   private cycleCounter = 0;
   private dedupeKeys = new Set<string>();
+  private current5mSlug: string | null = null;
+  private lastRotateCheck = 0;
 
   async start(): Promise<{ success: boolean; error?: string }> {
     if (this.running) return { success: false, error: "Already running" };
 
     const cfg = await this.loadConfig();
     if (!cfg) return { success: false, error: "No config found" };
+
+    if (cfg.autoRotate5m) {
+      const market = await fetchCurrent5mMarket(cfg.autoRotate5mAsset as AssetType);
+      if (market) {
+        cfg.marketTokenYes = market.tokenUp;
+        cfg.marketTokenNo = market.tokenDown;
+        cfg.marketSlug = market.slug;
+        cfg.negRisk = market.negRisk;
+        cfg.tickSize = String(market.tickSize);
+        this.current5mSlug = market.slug;
+
+        const row = await this.getConfigRow();
+        await db.update(dualEntryConfig).set({
+          marketTokenYes: market.tokenUp,
+          marketTokenNo: market.tokenDown,
+          marketSlug: market.slug,
+          marketQuestion: market.question,
+          negRisk: market.negRisk,
+          tickSize: String(market.tickSize),
+          updatedAt: new Date(),
+        }).where(eq(dualEntryConfig.id, row.id));
+
+        this.log("AUTO_ROTATE", `Auto-selected 5m market: ${market.slug} (${market.question})`);
+      } else {
+        this.log("AUTO_ROTATE", "No active 5m market found at start — will use existing config tokens and rotate when available");
+      }
+    }
+
     if (!cfg.marketTokenYes || !cfg.marketTokenNo) {
       return { success: false, error: "Market tokens not configured (YES/NO)" };
     }
@@ -42,7 +73,7 @@ export class DualEntry5mEngine {
 
     volatilityTracker.start(cfg.marketTokenYes, cfg.marketTokenNo);
 
-    this.log("ENGINE_START", `Strategy started. Dry-run: ${cfg.isDryRun}. Smart features: vol=${cfg.volFilterEnabled}, dynEntry=${cfg.dynamicEntryEnabled}, momTP=${cfg.momentumTpEnabled}, dynSize=${cfg.dynamicSizeEnabled}, smartCancel=${cfg.smartScratchCancel}, hourFilter=${cfg.hourFilterEnabled}, multiMarket=${cfg.multiMarketEnabled}`);
+    this.log("ENGINE_START", `Strategy started. Dry-run: ${cfg.isDryRun}. AutoRotate5m: ${cfg.autoRotate5m}. Smart features: vol=${cfg.volFilterEnabled}, dynEntry=${cfg.dynamicEntryEnabled}, momTP=${cfg.momentumTpEnabled}, dynSize=${cfg.dynamicSizeEnabled}, smartCancel=${cfg.smartScratchCancel}, hourFilter=${cfg.hourFilterEnabled}`);
 
     this.mainLoopInterval = setInterval(() => this.tick(), 2000);
     this.tick();
@@ -112,6 +143,10 @@ export class DualEntry5mEngine {
     if (!this.running || !this.config) return;
 
     try {
+      if (this.config.autoRotate5m) {
+        await this.maybeRotate5mMarket();
+      }
+
       const marketSlots = this.getMarketSlots();
 
       for (const slot of marketSlots) {
@@ -135,6 +170,46 @@ export class DualEntry5mEngine {
     } catch (err: any) {
       this.log("TICK_ERROR", err.message);
     }
+  }
+
+  private async maybeRotate5mMarket(): Promise<void> {
+    if (!this.config || !this.config.autoRotate5m) return;
+
+    const now = Date.now();
+    if (now - this.lastRotateCheck < 10000) return;
+    this.lastRotateCheck = now;
+
+    if (this.currentCycles.size > 0) return;
+
+    const market = await fetchCurrent5mMarket(this.config.autoRotate5mAsset as AssetType);
+    if (!market) return;
+
+    if (market.slug === this.current5mSlug) return;
+
+    if (market.closed || !market.acceptingOrders) return;
+    if (market.timeRemainingMs < 30000) return;
+
+    this.current5mSlug = market.slug;
+    this.config.marketTokenYes = market.tokenUp;
+    this.config.marketTokenNo = market.tokenDown;
+    this.config.marketSlug = market.slug;
+    this.config.negRisk = market.negRisk;
+    this.config.tickSize = String(market.tickSize);
+
+    const row = await this.getConfigRow();
+    await db.update(dualEntryConfig).set({
+      marketTokenYes: market.tokenUp,
+      marketTokenNo: market.tokenDown,
+      marketSlug: market.slug,
+      marketQuestion: market.question,
+      negRisk: market.negRisk,
+      tickSize: String(market.tickSize),
+      updatedAt: new Date(),
+    }).where(eq(dualEntryConfig.id, row.id));
+
+    volatilityTracker.updateTokens(market.tokenUp, market.tokenDown);
+
+    this.log("AUTO_ROTATE", `Rotated to new 5m market: ${market.slug} | ${market.question} | remaining: ${(market.timeRemainingMs / 1000).toFixed(0)}s`);
   }
 
   private getMarketSlots(): Array<{ key: string; tokenYes: string; tokenNo: string; negRisk: boolean; tickSize: string }> {
@@ -873,6 +948,8 @@ export class DualEntry5mEngine {
       hourFilterAllowed: (c.hourFilterAllowed as number[]) || [],
       multiMarketEnabled: c.multiMarketEnabled,
       additionalMarkets: (c.additionalMarkets as MarketSlot[]) || [],
+      autoRotate5m: c.autoRotate5m,
+      autoRotate5mAsset: c.autoRotate5mAsset || "btc",
     };
   }
 
