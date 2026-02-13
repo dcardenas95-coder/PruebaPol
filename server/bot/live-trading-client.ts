@@ -2,6 +2,7 @@ import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { Wallet } from "@ethersproject/wallet";
 import { storage } from "../storage";
+import { apiRateLimiter } from "./rate-limiter";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const CHAIN_ID = 137;
@@ -104,6 +105,15 @@ export class LiveTradingClient {
     return this.wallet.address;
   }
 
+  getApiCreds(): { apiKey: string; secret: string; passphrase: string } | null {
+    if (!this.creds) return null;
+    return {
+      apiKey: this.creds.key,
+      secret: this.creds.secret,
+      passphrase: this.creds.passphrase,
+    };
+  }
+
   async getBalanceAllowance(tokenId: string): Promise<BalanceInfo | null> {
     if (!this.client || !this.initialized) return null;
     try {
@@ -186,6 +196,7 @@ export class LiveTradingClient {
         level: "info",
       });
 
+      apiRateLimiter.recordSuccess();
       return {
         success: true,
         orderID,
@@ -193,6 +204,7 @@ export class LiveTradingClient {
       };
     } catch (error: any) {
       console.error("[LiveTrading] Place order error:", error.message);
+      await apiRateLimiter.recordError(error.message);
       await storage.createEvent({
         type: "ERROR",
         message: `LIVE ORDER ERROR: ${error.message}`,

@@ -3,6 +3,8 @@ import { MarketDataModule } from "./market-data";
 import { OrderManager } from "./order-manager";
 import { RiskManager } from "./risk-manager";
 import { liveTradingClient } from "./live-trading-client";
+import { polymarketWs } from "./polymarket-ws";
+import { apiRateLimiter } from "./rate-limiter";
 import type { BotConfig, MarketData, BotStatus } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -17,6 +19,8 @@ export class StrategyEngine {
   private cycleCount = 0;
   private marketCycleStart = 0;
   private readonly MARKET_DURATION = 5 * 60 * 1000;
+  private wsSetup = false;
+  private lastDailyReset = new Date().toDateString();
 
   constructor() {
     this.marketData = new MarketDataModule();
@@ -69,6 +73,8 @@ export class StrategyEngine {
         data: { wallet: liveTradingClient.getWalletAddress() },
         level: "warn",
       });
+
+      await this.orderManager.reconcileOnStartup();
     }
 
     await storage.updateBotConfig({ isActive: true, currentState: "MAKING" });
@@ -82,7 +88,39 @@ export class StrategyEngine {
       level: "info",
     });
 
+    this.setupWebSocket(config);
+
     this.interval = setInterval(() => this.tick(), 3000);
+  }
+
+  private setupWebSocket(config: BotConfig): void {
+    if (this.wsSetup) return;
+
+    if (config.currentMarketId) {
+      polymarketWs.connectMarket([config.currentMarketId]);
+      this.marketData.setWsDataSource(polymarketWs);
+
+      polymarketWs.onMarketData((data) => {
+        this.marketData.updateFromWs(data);
+      });
+    }
+
+    if (!config.isPaperTrading && liveTradingClient.isInitialized()) {
+      const creds = liveTradingClient.getApiCreds();
+      if (creds && config.currentMarketId) {
+        polymarketWs.connectUser([config.currentMarketId], creds);
+
+        polymarketWs.onFill(async (fillData) => {
+          try {
+            await this.orderManager.handleWsFill(fillData);
+          } catch (err: any) {
+            console.error("[StrategyEngine] WS fill handler error:", err.message);
+          }
+        });
+      }
+    }
+
+    this.wsSetup = true;
   }
 
   async stop(): Promise<void> {
@@ -90,6 +128,10 @@ export class StrategyEngine {
       clearInterval(this.interval);
       this.interval = null;
     }
+
+    polymarketWs.disconnectAll();
+    this.wsSetup = false;
+    this.orderManager.clearAllTimeouts();
 
     await this.orderManager.cancelAllOrders();
     await storage.updateBotConfig({ isActive: false, currentState: "STOPPED" });
@@ -127,9 +169,31 @@ export class StrategyEngine {
 
   private async tick(): Promise<void> {
     try {
+      const today = new Date().toDateString();
+      if (today !== this.lastDailyReset) {
+        this.riskManager.resetDaily();
+        this.lastDailyReset = today;
+        await storage.createEvent({
+          type: "SYSTEM",
+          message: "Daily risk counters reset",
+          data: {},
+          level: "info",
+        });
+      }
+
       const config = await storage.getBotConfig();
       if (!config || !config.isActive || config.killSwitchActive) return;
 
+      if (apiRateLimiter.isCircuitOpen()) {
+        return;
+      }
+
+      const rateCheck = await apiRateLimiter.canProceed();
+      if (!rateCheck.allowed) {
+        return;
+      }
+
+      apiRateLimiter.recordRequest();
       const data = await this.marketData.getData();
       const elapsed = Date.now() - this.marketCycleStart;
       const remaining = this.MARKET_DURATION - elapsed;
@@ -241,6 +305,32 @@ export class StrategyEngine {
     const riskCheck = await this.riskManager.checkPreTrade(config, config.orderSize * data.bestBid);
     if (!riskCheck.allowed) {
       return;
+    }
+
+    if (!config.isPaperTrading && liveTradingClient.isInitialized() && config.currentMarketId) {
+      try {
+        const balanceRateCheck = await apiRateLimiter.canProceed();
+        if (!balanceRateCheck.allowed) {
+          return;
+        }
+        const balance = await liveTradingClient.getBalanceAllowance(config.currentMarketId);
+        apiRateLimiter.recordSuccess();
+        const usdcBalance = parseFloat(balance?.balance || "0");
+        const orderCost = config.orderSize * data.bestBid;
+        if (usdcBalance < orderCost) {
+          await storage.createEvent({
+            type: "RISK_ALERT",
+            message: `Insufficient balance: $${usdcBalance.toFixed(2)} < order cost $${orderCost.toFixed(2)}`,
+            data: { balance: usdcBalance, orderCost },
+            level: "warn",
+          });
+          return;
+        }
+      } catch (error: any) {
+        await apiRateLimiter.recordError(error.message);
+        console.error("[Strategy] Balance check failed:", error.message);
+        return;
+      }
     }
 
     const activeOrders = await this.orderManager.getActiveOrders();
@@ -413,6 +503,7 @@ export class StrategyEngine {
       uptime: Date.now() - this.startTime,
       isLiveData: this.marketData.isUsingLiveData(),
       currentTokenId: this.marketData.getTokenId(),
+      wsHealth: polymarketWs.getHealth(),
     };
   }
 }

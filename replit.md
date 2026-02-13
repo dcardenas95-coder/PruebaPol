@@ -1,31 +1,37 @@
 # PolyMaker - Asymmetric Market Making Bot
 
 ## Overview
-Professional asymmetric market making bot for Polymarket BTC binary markets. Connected to Polymarket's CLOB API for live orderbook data. Supports both paper trading (simulated fills with real prices) and live trading (real orders via @polymarket/clob-client SDK). Full admin dashboard for monitoring and control.
+Professional asymmetric market making bot for Polymarket BTC binary markets. Connected to Polymarket's CLOB API for live orderbook data. Supports both paper trading (simulated fills with real prices) and live trading (real orders via @polymarket/clob-client SDK). Full admin dashboard for monitoring and control. WebSocket-based real-time data feeds with comprehensive safety controls.
 
 ## Architecture
 
 ### Frontend (React + Vite)
-- **Dashboard**: Overview with bot status, FSM state, LIVE/Paper/Simulated indicator, risk parameters
+- **Dashboard**: Overview with bot status, FSM state, LIVE/Paper/Simulated indicator, risk parameters, WebSocket health
 - **Orders**: Active and historical order management with cancel capabilities
 - **Positions**: Current inventory tracking with PnL
 - **PnL**: Performance analytics with cumulative and daily charts
-- **Configuration**: Market selector (Polymarket integration), strategy parameters, risk limits, kill switch, paper/live mode toggle with confirmation
+- **Configuration**: Market selector (Polymarket integration), strategy parameters, risk limits, kill switch, paper/live mode toggle with confirmation, live test button, rate limiter status
 - **Logs**: Structured event logging with filtering
 
 ### Backend (Express + TypeScript)
 - **Strategy Engine**: FSM with states MAKING → UNWIND → CLOSE_ONLY → HEDGE_LOCK → DONE
-- **Order Manager**: Dual-mode - paper (simulated fills) and live (real CLOB orders). Idempotent with clientOrderId, position tracking on fills
-- **Risk Manager**: Max exposure, daily loss limits, consecutive loss stops
+- **Order Manager**: Dual-mode - paper (simulated fills) and live (real CLOB orders). Idempotent with clientOrderId, position tracking on fills, order timeout system
+- **Risk Manager**: Max exposure, daily loss limits, consecutive loss stops, proximity alerts (80% exposure, 70% loss)
 - **Live Trading Client**: `@polymarket/clob-client` SDK integration for order signing, placement, cancellation, and balance checking
 - **Polymarket Client**: REST client for public CLOB API (orderbook, prices, spread) and Gamma API (market discovery)
+- **Polymarket WebSocket**: Real-time market data (orderbook) and user channel (order fills) via wss://ws-subscriptions-clob.polymarket.com with ping/pong heartbeat, exponential backoff reconnection
 - **Market Data Module**: Fetches live data from Polymarket with fallback to simulation
 - **Paper Trading**: Conservative fill simulation using real orderbook structure
+- **Rate Limiter**: 8 req/sec, 100 req/min limits with sliding window tracking
+- **Circuit Breaker**: Opens on 5 consecutive API errors, 30-second cooldown period
+- **Order Reconciliation**: On startup, syncs DB orders with exchange state, detects orphaned orders, handles partial fills
 
 ### Polymarket Integration
 - **Public API (no auth)**: Market discovery, orderbook, prices, spread, midpoint via `https://clob.polymarket.com`
 - **Gamma API**: Market search and BTC market discovery via `https://gamma-api.polymarket.com`
 - **Authenticated API**: Order creation/signing via `@polymarket/clob-client` SDK with ethers.js wallet
+- **WebSocket (public)**: wss://ws-subscriptions-clob.polymarket.com/ws/market for real-time orderbook
+- **WebSocket (auth)**: wss://ws-subscriptions-clob.polymarket.com/ws/user for fill notifications
 - **Market Selection**: Users select a market token; config stores tokenId, negRisk, tickSize for order signing
 - **Live Trading**: Uses `POLYMARKET_PRIVATE_KEY` secret for wallet initialization and API key derivation
 
@@ -34,15 +40,18 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 
 ## Key Files
 - `shared/schema.ts` - All data models and types
-- `server/bot/strategy-engine.ts` - Core FSM strategy (paper + live modes)
+- `server/bot/strategy-engine.ts` - Core FSM strategy (paper + live modes, reconciliation, order timeouts)
 - `server/bot/order-manager.ts` - Order lifecycle management (paper simulation + live CLOB)
 - `server/bot/live-trading-client.ts` - @polymarket/clob-client SDK wrapper
-- `server/bot/risk-manager.ts` - Risk checks and limits
+- `server/bot/risk-manager.ts` - Risk checks, limits, and proximity alerts
 - `server/bot/market-data.ts` - Market data with live/simulated modes
 - `server/bot/polymarket-client.ts` - Polymarket REST API client (public endpoints)
-- `server/routes.ts` - API endpoints including market discovery and live trading
+- `server/bot/polymarket-ws.ts` - WebSocket client for real-time market and user data
+- `server/bot/rate-limiter.ts` - API rate limiter and circuit breaker
+- `server/routes.ts` - API endpoints including market discovery, live trading, WebSocket health
 - `server/storage.ts` - Database storage layer
-- `client/src/pages/config.tsx` - Configuration with market selector and live mode toggle
+- `client/src/pages/config.tsx` - Configuration with market selector, live mode toggle, test button, rate limiter
+- `client/src/pages/overview.tsx` - Dashboard with WebSocket health indicators
 - `client/src/pages/` - All dashboard pages
 
 ## API Endpoints
@@ -58,6 +67,9 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - `GET /api/connection/status` - Check Polymarket connection status (includes wallet info)
 - `POST /api/trading/init-live` - Initialize live trading client with wallet
 - `GET /api/trading/balance/:tokenId` - Check USDC balance for token
+- `POST /api/trading/test-live` - End-to-end test: place min order, verify, cancel
+- `GET /api/ws/health` - WebSocket connection health (status, reconnects, last message)
+- `GET /api/rate-limiter/status` - Rate limiter and circuit breaker status
 
 ## User Preferences
 - Dark mode default (trading terminal aesthetic)
@@ -67,12 +79,14 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - Speaks Spanish
 
 ## Recent Changes
+- 2026-02-13: Added rate limiter (8/sec, 100/min) and circuit breaker (5 errors → 30s pause)
+- 2026-02-13: Added pre-order balance verification and risk proximity alerts
+- 2026-02-13: Created /api/trading/test-live endpoint with dashboard UI
+- 2026-02-13: Added order timeout system with configurable TTL (5min default)
+- 2026-02-13: Implemented startup order reconciliation (sync DB ↔ exchange)
+- 2026-02-13: Built WebSocket module for real-time market data and user fills
+- 2026-02-13: Integrated WebSocket into strategy engine replacing polling
+- 2026-02-13: Updated dashboard with WebSocket health, rate limiter status, test button
 - 2026-02-13: Implemented live trading via @polymarket/clob-client SDK with order signing
-- 2026-02-13: Added live trading client initialization, balance checking, order placement/cancellation
-- 2026-02-13: OrderManager now routes to live CLOB or paper simulation based on isPaperTrading
-- 2026-02-13: Strategy engine initializes live client on start, polls live order statuses
-- 2026-02-13: Added negRisk/tickSize to bot config for proper order signing
-- 2026-02-13: Added safety controls: live mode confirmation dialog, prominent warnings
-- 2026-02-13: Integrated Polymarket CLOB API for live orderbook data
 - 2026-02-13: Added market selector in Configuration page with Gamma API market discovery
 - 2026-02-13: Initial MVP build with full dashboard, bot engine, paper trading mode

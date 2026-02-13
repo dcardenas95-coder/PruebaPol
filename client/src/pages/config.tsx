@@ -21,6 +21,9 @@ import {
   Zap,
   ShieldAlert,
   Wallet,
+  FlaskConical,
+  CircleCheck,
+  CircleX,
 } from "lucide-react";
 import type { BotConfig } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -528,6 +531,144 @@ export default function Configuration() {
           )}
         </CardContent>
       </Card>
+
+      <LiveTestCard config={config} />
+      <RateLimiterCard />
     </div>
+  );
+}
+
+function LiveTestCard({ config }: { config?: BotConfig }) {
+  const { toast } = useToast();
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/trading/test-live");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setTestResult(data);
+      toast({
+        title: data.success ? "Test passed" : "Test failed",
+        description: data.message,
+        variant: data.success ? "default" : "destructive",
+      });
+    },
+    onError: (err: Error) => {
+      setTestResult({ success: false, message: err.message });
+      toast({ title: "Test error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">Live Trading Test</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Place a minimum-size test order to verify exchange connectivity, wallet signing,
+          and order flow. The order will be placed and immediately cancelled.
+        </p>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => testMutation.mutate()}
+            disabled={testMutation.isPending || config?.isPaperTrading}
+            data-testid="button-test-live"
+          >
+            {testMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+            ) : (
+              <FlaskConical className="w-4 h-4 mr-1.5" />
+            )}
+            Run Test
+          </Button>
+          {config?.isPaperTrading && (
+            <span className="text-xs text-muted-foreground">Switch to live mode to test</span>
+          )}
+        </div>
+        {testResult && (
+          <div className={`flex items-start gap-2 p-3 rounded-md ${testResult.success ? "bg-emerald-500/10 border border-emerald-500/30" : "bg-destructive/10 border border-destructive/30"}`}>
+            {testResult.success ? (
+              <CircleCheck className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+            ) : (
+              <CircleX className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className="text-sm font-medium">{testResult.success ? "Test Passed" : "Test Failed"}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{testResult.message}</p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RateLimiterCard() {
+  const { data: rlStatus } = useQuery<{
+    requestsLastSecond: number;
+    requestsLastMinute: number;
+    consecutiveErrors: number;
+    circuitOpen: boolean;
+    circuitCooldownRemaining: number;
+  }>({
+    queryKey: ["/api/rate-limiter/status"],
+    refetchInterval: 5000,
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Gauge className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">API Rate Limiter & Circuit Breaker</CardTitle>
+          {rlStatus?.circuitOpen && (
+            <Badge variant="destructive" className="ml-auto" data-testid="badge-circuit-open">
+              Circuit Open
+            </Badge>
+          )}
+          {rlStatus && !rlStatus.circuitOpen && (
+            <Badge variant="secondary" className="ml-auto" data-testid="badge-circuit-closed">
+              Normal
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {rlStatus ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Req/sec</p>
+              <p className="text-lg font-mono font-bold" data-testid="text-req-per-sec">{rlStatus.requestsLastSecond}/8</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Req/min</p>
+              <p className="text-lg font-mono font-bold" data-testid="text-req-per-min">{rlStatus.requestsLastMinute}/100</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Consecutive Errors</p>
+              <p className={`text-lg font-mono font-bold ${rlStatus.consecutiveErrors >= 3 ? "text-amber-500" : ""}`} data-testid="text-consecutive-errors">
+                {rlStatus.consecutiveErrors}/5
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Cooldown</p>
+              <p className="text-lg font-mono font-bold" data-testid="text-cooldown">
+                {rlStatus.circuitCooldownRemaining > 0 ? `${Math.ceil(rlStatus.circuitCooldownRemaining / 1000)}s` : "—"}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Skeleton className="h-16 w-full" />
+        )}
+      </CardContent>
+    </Card>
   );
 }

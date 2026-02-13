@@ -5,6 +5,8 @@ import { strategyEngine } from "./bot/strategy-engine";
 import { updateBotConfigSchema } from "@shared/schema";
 import { polymarketClient } from "./bot/polymarket-client";
 import { liveTradingClient } from "./bot/live-trading-client";
+import { polymarketWs } from "./bot/polymarket-ws";
+import { apiRateLimiter } from "./bot/rate-limiter";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -346,6 +348,160 @@ export async function registerRoutes(
       }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/rate-limiter/status", async (_req, res) => {
+    try {
+      const status = apiRateLimiter.getStatus();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/ws/health", async (_req, res) => {
+    try {
+      const health = polymarketWs.getHealth();
+      res.json(health);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/trading/test-live", async (_req, res) => {
+    try {
+      if (!liveTradingClient.isInitialized()) {
+        const initResult = await liveTradingClient.initialize();
+        if (!initResult.success) {
+          return res.status(400).json({
+            success: false,
+            stage: "init",
+            error: `Failed to initialize live client: ${initResult.error}`,
+          });
+        }
+      }
+
+      const config = await storage.getBotConfig();
+      if (!config?.currentMarketId) {
+        return res.status(400).json({
+          success: false,
+          stage: "config",
+          error: "No market selected. Select a market first.",
+        });
+      }
+
+      const tokenId = config.currentMarketId;
+      const negRisk = config.currentMarketNegRisk ?? false;
+      const tickSize = config.currentMarketTickSize ?? "0.01";
+
+      await storage.createEvent({
+        type: "INFO",
+        message: "TEST LIVE: Starting end-to-end test with minimum order...",
+        data: { tokenId, negRisk, tickSize },
+        level: "warn",
+      });
+
+      const orderbook = await polymarketClient.fetchOrderBook(tokenId);
+      if (!orderbook || orderbook.bids.length === 0) {
+        return res.status(400).json({
+          success: false,
+          stage: "orderbook",
+          error: "Could not fetch orderbook or no bids available",
+        });
+      }
+
+      const bids = orderbook.bids
+        .map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }))
+        .sort((a, b) => b.price - a.price);
+
+      const testPrice = Math.max(0.01, bids[0].price - 0.10);
+      const testSize = 1;
+
+      const placeResult = await liveTradingClient.placeOrder({
+        tokenId,
+        side: "BUY",
+        price: testPrice,
+        size: testSize,
+        negRisk,
+        tickSize,
+      });
+
+      if (!placeResult.success) {
+        await storage.createEvent({
+          type: "ERROR",
+          message: `TEST LIVE: Order placement FAILED: ${placeResult.errorMsg}`,
+          data: { error: placeResult.errorMsg },
+          level: "error",
+        });
+        return res.json({
+          success: false,
+          stage: "place",
+          error: placeResult.errorMsg,
+          details: { testPrice, testSize, tokenId },
+        });
+      }
+
+      const exchangeOrderId = placeResult.orderID;
+      await storage.createEvent({
+        type: "INFO",
+        message: `TEST LIVE: Order placed! ID: ${exchangeOrderId}, ${testSize} @ $${testPrice.toFixed(4)}`,
+        data: { exchangeOrderId, testPrice, testSize },
+        level: "info",
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const openOrders = await liveTradingClient.getOpenOrders();
+      const orderStillOpen = openOrders.some((o: any) => o.id === exchangeOrderId);
+
+      let cancelResult = null;
+      if (orderStillOpen && exchangeOrderId) {
+        cancelResult = await liveTradingClient.cancelOrder(exchangeOrderId);
+        await storage.createEvent({
+          type: "INFO",
+          message: `TEST LIVE: Order cancelled successfully: ${exchangeOrderId}`,
+          data: { exchangeOrderId, cancelResult },
+          level: "info",
+        });
+      }
+
+      const summary = {
+        success: true,
+        stage: "complete",
+        results: {
+          initialization: "OK",
+          orderbookFetch: "OK",
+          orderPlacement: placeResult.success ? "OK" : "FAILED",
+          exchangeOrderId,
+          orderPrice: testPrice,
+          orderSize: testSize,
+          orderFoundOnExchange: orderStillOpen,
+          cancellation: cancelResult ? (cancelResult.success ? "OK" : "FAILED") : "SKIPPED (order already gone)",
+          wallet: liveTradingClient.getWalletAddress(),
+        },
+      };
+
+      await storage.createEvent({
+        type: "INFO",
+        message: `TEST LIVE: Complete! All stages passed. Order placed and cancelled successfully.`,
+        data: summary,
+        level: "info",
+      });
+
+      res.json(summary);
+    } catch (error: any) {
+      await storage.createEvent({
+        type: "ERROR",
+        message: `TEST LIVE: Error - ${error.message}`,
+        data: { error: error.message },
+        level: "error",
+      });
+      res.status(500).json({
+        success: false,
+        stage: "error",
+        error: error.message,
+      });
     }
   });
 

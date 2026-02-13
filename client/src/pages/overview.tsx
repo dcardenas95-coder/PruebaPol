@@ -19,6 +19,8 @@ import {
   Radio,
   Wifi,
   WifiOff,
+  Cable,
+  RefreshCw,
 } from "lucide-react";
 import type { BotStatus } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -245,6 +247,7 @@ export default function Overview() {
 
   const config = status?.config;
   const dailyPnl = status?.dailyPnl ?? 0;
+  const wsHealth = status?.wsHealth;
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -443,6 +446,96 @@ export default function Overview() {
           </div>
         </CardContent>
       </Card>
+
+      <Card data-testid="card-ws-health">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Cable className="w-4 h-4" />
+            WebSocket Connections
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">Market Data Feed</span>
+                <span className="text-xs text-muted-foreground">
+                  {wsHealth?.marketSubscribedAssets?.length
+                    ? `${wsHealth.marketSubscribedAssets.length} asset(s)`
+                    : "No subscriptions"}
+                </span>
+                {wsHealth?.marketLastMessage ? (
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    Last: {formatWsTime(wsHealth.marketLastMessage)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {(wsHealth?.marketReconnects ?? 0) > 0 && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                    <RefreshCw className="w-3 h-3" />
+                    {wsHealth?.marketReconnects}
+                  </span>
+                )}
+                <Badge
+                  variant={wsHealth?.marketConnected ? "default" : "secondary"}
+                  className="text-[10px]"
+                  data-testid="badge-ws-market"
+                >
+                  {wsHealth?.marketConnected ? (
+                    <><Wifi className="w-3 h-3 mr-1" /> Connected</>
+                  ) : (
+                    <><WifiOff className="w-3 h-3 mr-1" /> Disconnected</>
+                  )}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">User Order Feed</span>
+                <span className="text-xs text-muted-foreground">
+                  {wsHealth?.userSubscribedAssets?.length
+                    ? `${wsHealth.userSubscribedAssets.length} asset(s)`
+                    : config?.isPaperTrading ? "Paper mode (disabled)" : "No subscriptions"}
+                </span>
+                {wsHealth?.userLastMessage ? (
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    Last: {formatWsTime(wsHealth.userLastMessage)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {(wsHealth?.userReconnects ?? 0) > 0 && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                    <RefreshCw className="w-3 h-3" />
+                    {wsHealth?.userReconnects}
+                  </span>
+                )}
+                <Badge
+                  variant={wsHealth?.userConnected ? "default" : "secondary"}
+                  className="text-[10px]"
+                  data-testid="badge-ws-user"
+                >
+                  {wsHealth?.userConnected ? (
+                    <><Wifi className="w-3 h-3 mr-1" /> Connected</>
+                  ) : (
+                    <><WifiOff className="w-3 h-3 mr-1" /> Disconnected</>
+                  )}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
+}
+
+function formatWsTime(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
 }

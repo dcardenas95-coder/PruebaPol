@@ -1,5 +1,6 @@
 import type { MarketData } from "@shared/schema";
 import { polymarketClient } from "./polymarket-client";
+import type { PolymarketWebSocket } from "./polymarket-ws";
 
 export class MarketDataModule {
   private lastData: MarketData | null = null;
@@ -7,6 +8,9 @@ export class MarketDataModule {
   private useSimulation = false;
   private consecutiveErrors = 0;
   private readonly MAX_ERRORS_BEFORE_FALLBACK = 5;
+  private wsSource: PolymarketWebSocket | null = null;
+  private lastWsUpdate = 0;
+  private readonly WS_STALE_THRESHOLD = 15_000;
 
   setTokenId(tokenId: string | null): void {
     this.currentTokenId = tokenId;
@@ -18,8 +22,23 @@ export class MarketDataModule {
     return this.currentTokenId;
   }
 
+  setWsDataSource(ws: PolymarketWebSocket): void {
+    this.wsSource = ws;
+  }
+
+  updateFromWs(data: MarketData): void {
+    this.lastData = data;
+    this.lastWsUpdate = Date.now();
+    this.consecutiveErrors = 0;
+  }
+
   isUsingLiveData(): boolean {
     return !!this.currentTokenId && !this.useSimulation;
+  }
+
+  isWsActive(): boolean {
+    if (!this.wsSource) return false;
+    return Date.now() - this.lastWsUpdate < this.WS_STALE_THRESHOLD;
   }
 
   async fetchLiveData(): Promise<MarketData | null> {
@@ -68,6 +87,10 @@ export class MarketDataModule {
   }
 
   async getData(): Promise<MarketData> {
+    if (this.isWsActive() && this.lastData) {
+      return this.lastData;
+    }
+
     if (this.currentTokenId && !this.useSimulation) {
       const liveData = await this.fetchLiveData();
       if (liveData) return liveData;

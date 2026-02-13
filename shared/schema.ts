@@ -153,6 +153,17 @@ export type MarketData = {
   volume24h: number;
 };
 
+export type WsConnectionHealth = {
+  marketConnected: boolean;
+  userConnected: boolean;
+  marketLastMessage: number | null;
+  userLastMessage: number | null;
+  marketReconnects: number;
+  userReconnects: number;
+  marketSubscribedAssets: string[];
+  userSubscribedAssets: string[];
+};
+
 export type BotStatus = {
   config: BotConfig;
   marketData: MarketData | null;
@@ -163,4 +174,5 @@ export type BotStatus = {
   uptime: number;
   isLiveData?: boolean;
   currentTokenId?: string | null;
+  wsHealth?: WsConnectionHealth;
 };

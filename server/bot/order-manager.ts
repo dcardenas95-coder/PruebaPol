@@ -4,6 +4,145 @@ import type { Order, InsertOrder } from "@shared/schema";
 import { liveTradingClient } from "./live-trading-client";
 
 export class OrderManager {
+  private orderTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private readonly DEFAULT_ORDER_TTL = 5 * 60 * 1000;
+
+  async reconcileOnStartup(): Promise<void> {
+    if (!liveTradingClient.isInitialized()) return;
+
+    await storage.createEvent({
+      type: "RECONCILIATION",
+      message: "Starting order reconciliation on boot...",
+      data: {},
+      level: "info",
+    });
+
+    const dbActiveOrders = await storage.getActiveOrders();
+    const liveOrders = dbActiveOrders.filter(o => !o.isPaperTrade && o.exchangeOrderId);
+
+    if (liveOrders.length === 0) {
+      await storage.createEvent({
+        type: "RECONCILIATION",
+        message: "No live orders in DB to reconcile",
+        data: {},
+        level: "info",
+      });
+      return;
+    }
+
+    const exchangeOrders = await liveTradingClient.getOpenOrders();
+    const exchangeMap = new Map<string, any>();
+    for (const o of exchangeOrders) {
+      exchangeMap.set(o.id, o);
+    }
+
+    let reconciled = 0;
+    let cancelled = 0;
+    let filled = 0;
+
+    for (const dbOrder of liveOrders) {
+      if (!dbOrder.exchangeOrderId) continue;
+
+      const exchangeOrder = exchangeMap.get(dbOrder.exchangeOrderId);
+
+      if (exchangeOrder) {
+        const sizeMatched = parseFloat(exchangeOrder.size_matched || "0");
+        if (sizeMatched > dbOrder.filledSize) {
+          const newFillSize = sizeMatched - dbOrder.filledSize;
+          const fillPrice = dbOrder.price;
+          const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+
+          await storage.createFill({
+            orderId: dbOrder.id,
+            marketId: dbOrder.marketId,
+            side: dbOrder.side,
+            price: fillPrice,
+            size: newFillSize,
+            fee,
+            isPaperTrade: false,
+          });
+
+          await storage.updateOrderStatus(dbOrder.id, "PARTIALLY_FILLED", sizeMatched);
+          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee);
+          filled++;
+        }
+        reconciled++;
+      } else {
+        const orderInfo = await liveTradingClient.getOrderStatus(dbOrder.exchangeOrderId);
+        const sizeMatched = parseFloat(orderInfo?.size_matched || "0");
+        const originalSize = parseFloat(orderInfo?.original_size || String(dbOrder.size));
+
+        if (sizeMatched > dbOrder.filledSize) {
+          const newFillSize = sizeMatched - dbOrder.filledSize;
+          const fillPrice = dbOrder.price;
+          const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+
+          await storage.createFill({
+            orderId: dbOrder.id,
+            marketId: dbOrder.marketId,
+            side: dbOrder.side,
+            price: fillPrice,
+            size: newFillSize,
+            fee,
+            isPaperTrade: false,
+          });
+          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee);
+          filled++;
+        }
+
+        const totalFilled = Math.max(sizeMatched, dbOrder.filledSize);
+        if (totalFilled >= originalSize * 0.99) {
+          await storage.updateOrderStatus(dbOrder.id, "FILLED", totalFilled);
+        } else {
+          await storage.updateOrderStatus(dbOrder.id, "CANCELLED", totalFilled);
+          cancelled++;
+        }
+        reconciled++;
+      }
+    }
+
+    await storage.createEvent({
+      type: "RECONCILIATION",
+      message: `Reconciliation complete: ${reconciled} checked, ${filled} fills found, ${cancelled} orphans cancelled`,
+      data: { reconciled, filled, cancelled, totalDbOrders: liveOrders.length, totalExchangeOrders: exchangeOrders.length },
+      level: "info",
+    });
+  }
+
+  setOrderTimeout(orderId: string, ttlMs?: number): void {
+    const ttl = ttlMs || this.DEFAULT_ORDER_TTL;
+
+    if (this.orderTimeouts.has(orderId)) {
+      clearTimeout(this.orderTimeouts.get(orderId)!);
+    }
+
+    const timer = setTimeout(async () => {
+      this.orderTimeouts.delete(orderId);
+      const order = await storage.getOrderById(orderId);
+      if (!order || order.status === "FILLED" || order.status === "CANCELLED" || order.status === "REJECTED") {
+        return;
+      }
+
+      await storage.createEvent({
+        type: "ORDER_CANCELLED",
+        message: `Order timed out after ${(ttl / 1000).toFixed(0)}s: ${order.clientOrderId}`,
+        data: { orderId, ttlMs: ttl, side: order.side, price: order.price },
+        level: "warn",
+      });
+
+      await this.cancelOrder(orderId);
+    }, ttl);
+
+    this.orderTimeouts.set(orderId, timer);
+  }
+
+  clearAllTimeouts(): void {
+    this.orderTimeouts.forEach((timer) => {
+      clearTimeout(timer);
+    });
+    this.orderTimeouts.clear();
+  }
+
   async placeOrder(params: {
     marketId: string;
     side: "BUY" | "SELL";
@@ -42,6 +181,7 @@ export class OrderManager {
       level: "info",
     });
 
+    this.setOrderTimeout(order.id);
     return order;
   }
 
@@ -110,10 +250,16 @@ export class OrderManager {
       level: "warn",
     });
 
+    this.setOrderTimeout(order.id);
     return (await storage.getOrderById(order.id))!;
   }
 
   async cancelOrder(orderId: string): Promise<Order | undefined> {
+    if (this.orderTimeouts.has(orderId)) {
+      clearTimeout(this.orderTimeouts.get(orderId)!);
+      this.orderTimeouts.delete(orderId);
+    }
+
     const order = await storage.getOrderById(orderId);
     if (!order) return undefined;
     if (order.status !== "OPEN" && order.status !== "PENDING" && order.status !== "PARTIALLY_FILLED") {
@@ -265,6 +411,77 @@ export class OrderManager {
     }
 
     return results;
+  }
+
+  async handleWsFill(fillData: {
+    orderId: string;
+    side: string;
+    price: number;
+    sizeMatched: number;
+    status: string;
+    timestamp: number;
+  }): Promise<void> {
+    const activeOrders = await storage.getActiveOrders();
+    const matchingOrder = activeOrders.find(
+      o => o.exchangeOrderId === fillData.orderId && !o.isPaperTrade,
+    );
+
+    if (!matchingOrder) return;
+
+    const newFillSize = fillData.sizeMatched - matchingOrder.filledSize;
+    if (newFillSize <= 0) return;
+
+    const fillPrice = fillData.price > 0 ? fillData.price : matchingOrder.price;
+    const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+
+    await storage.createFill({
+      orderId: matchingOrder.id,
+      marketId: matchingOrder.marketId,
+      side: matchingOrder.side,
+      price: fillPrice,
+      size: newFillSize,
+      fee,
+      isPaperTrade: false,
+    });
+
+    const totalFilled = matchingOrder.filledSize + newFillSize;
+    const isFull = totalFilled >= matchingOrder.size * 0.99;
+    const newStatus = isFull ? "FILLED" : "PARTIALLY_FILLED";
+
+    await storage.updateOrderStatus(matchingOrder.id, newStatus, totalFilled);
+
+    await storage.createEvent({
+      type: "ORDER_FILLED",
+      message: `[LIVE/WS] ${isFull ? "Full" : "Partial"} fill: ${newFillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${matchingOrder.side})`,
+      data: {
+        orderId: matchingOrder.id,
+        exchangeOrderId: fillData.orderId,
+        fillPrice,
+        fillSize: newFillSize,
+        totalFilled,
+        side: matchingOrder.side,
+        fee,
+        source: "websocket",
+      },
+      level: "info",
+    });
+
+    const pnl = await this.updatePosition(matchingOrder.marketId, matchingOrder.side, newFillSize, fillPrice, fee);
+    if (pnl !== 0) {
+      console.log(`[OrderManager/WS] Fill processed: ${matchingOrder.side} ${newFillSize} @ ${fillPrice}, PnL: ${pnl}`);
+    }
+
+    if (fillData.status === "CANCELLED" || fillData.status === "DEAD") {
+      if (!isFull) {
+        await storage.updateOrderStatus(matchingOrder.id, "CANCELLED", totalFilled);
+        await storage.createEvent({
+          type: "ORDER_CANCELLED",
+          message: `[LIVE/WS] Order cancelled by exchange after partial fill (${totalFilled.toFixed(2)}/${matchingOrder.size.toFixed(2)})`,
+          data: { orderId: matchingOrder.id, totalFilled, originalSize: matchingOrder.size },
+          level: "warn",
+        });
+      }
+    }
   }
 
   async simulateFill(orderId: string): Promise<{ filled: boolean; pnl: number }> {
