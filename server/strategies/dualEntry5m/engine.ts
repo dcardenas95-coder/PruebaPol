@@ -73,7 +73,7 @@ export class DualEntry5mEngine {
 
     volatilityTracker.start(cfg.marketTokenYes, cfg.marketTokenNo);
 
-    this.log("ENGINE_START", `Strategy started. Dry-run: ${cfg.isDryRun}. AutoRotate5m: ${cfg.autoRotate5m}. Smart features: vol=${cfg.volFilterEnabled}, dynEntry=${cfg.dynamicEntryEnabled}, momTP=${cfg.momentumTpEnabled}, dynSize=${cfg.dynamicSizeEnabled}, smartCancel=${cfg.smartScratchCancel}, hourFilter=${cfg.hourFilterEnabled}`);
+    this.log("ENGINE_START", `Strategy started. Dry-run: ${cfg.isDryRun}. DualTP: ${cfg.dualTpMode}. AutoRotate5m: ${cfg.autoRotate5m}. Smart features: vol=${cfg.volFilterEnabled}, dynEntry=${cfg.dynamicEntryEnabled}, momTP=${cfg.momentumTpEnabled}, dynSize=${cfg.dynamicSizeEnabled}, smartCancel=${cfg.smartScratchCancel}, hourFilter=${cfg.hourFilterEnabled}`);
 
     this.mainLoopInterval = setInterval(() => this.tick(), 2000);
     this.tick();
@@ -373,6 +373,8 @@ export class DualEntry5mEngine {
       noFilled: false,
       yesFilledSize: 0,
       noFilledSize: 0,
+      tpYesFilled: false,
+      tpNoFilled: false,
       tpFilled: false,
       scratchFilled: false,
       logs: [],
@@ -422,6 +424,11 @@ export class DualEntry5mEngine {
       case "HEDGED":
       case "EXIT_WORKING": {
         await this.checkExitFills(cycle, slotKey);
+        const exitElapsed = (now - windowMs) / 1000;
+        if (exitElapsed > cfg.exitTtlSeconds && cfg.exitTtlSeconds > 0) {
+          this.logCycle(cycle, "EXIT_TTL", `Exit TTL expired (${cfg.exitTtlSeconds}s). Cleaning up remaining orders.`);
+          await this.cleanupCycle(cycle, `Exit TTL expired after ${Math.round(exitElapsed)}s`);
+        }
         break;
       }
 
@@ -576,54 +583,96 @@ export class DualEntry5mEngine {
     if (!this.config) return;
     const cfg = this.config;
 
-    const winner = await this.determineWinner(cycle);
-    cycle.winnerSide = winner;
-    this.logCycle(cycle, "HEDGED", `Both legs filled. Winner: ${winner}`);
-
     const tokenYes = cycle.marketTokenYes ?? cfg.marketTokenYes;
     const tokenNo = cycle.marketTokenNo ?? cfg.marketTokenNo;
-    const winnerToken = winner === "YES" ? tokenYes : tokenNo;
-    const loserToken = winner === "YES" ? tokenNo : tokenYes;
-    const winnerSize = winner === "YES" ? cycle.yesFilledSize : cycle.noFilledSize;
-    const loserSize = winner === "YES" ? cycle.noFilledSize : cycle.yesFilledSize;
     const tpPrice = cycle.actualTpPrice ?? cfg.tpPrice;
 
-    const dedupeTp = `tp-${cycle.cycleNumber}`;
-    const dedupeScratch = `scratch-${cycle.cycleNumber}`;
+    if (cfg.dualTpMode) {
+      this.logCycle(cycle, "HEDGED", `Both legs filled. Dual TP mode: placing SELL TP on BOTH sides @ ${tpPrice}`);
 
-    if (!this.dedupeKeys.has(dedupeTp)) {
-      this.dedupeKeys.add(dedupeTp);
-      const tpResult = await this.placeOrder({
-        tokenId: winnerToken,
-        side: "SELL",
-        price: tpPrice,
-        size: winnerSize,
-        label: `SELL ${winner} TP`,
-        negRisk: cfg.negRisk,
-        tickSize: cfg.tickSize,
-      });
-      if (tpResult.success) {
-        cycle.tpOrderId = dedupeTp;
-        cycle.tpExchangeOrderId = tpResult.orderID;
-        this.logCycle(cycle, "TP_PLACED", `TP order: SELL ${winner} ${winnerSize} @ ${tpPrice} (${tpResult.orderID})`);
+      const dedupeTpYes = `tp-yes-${cycle.cycleNumber}`;
+      const dedupeTpNo = `tp-no-${cycle.cycleNumber}`;
+
+      if (!this.dedupeKeys.has(dedupeTpYes)) {
+        this.dedupeKeys.add(dedupeTpYes);
+        const tpYesResult = await this.placeOrder({
+          tokenId: tokenYes,
+          side: "SELL",
+          price: tpPrice,
+          size: cycle.yesFilledSize,
+          label: "SELL YES TP (dual)",
+          negRisk: cfg.negRisk,
+          tickSize: cfg.tickSize,
+        });
+        if (tpYesResult.success) {
+          cycle.tpYesExchangeOrderId = tpYesResult.orderID;
+          this.logCycle(cycle, "TP_YES_PLACED", `TP YES: SELL ${cycle.yesFilledSize} @ ${tpPrice} (${tpYesResult.orderID})`);
+        }
       }
-    }
 
-    if (!this.dedupeKeys.has(dedupeScratch)) {
-      this.dedupeKeys.add(dedupeScratch);
-      const scratchResult = await this.placeOrder({
-        tokenId: loserToken,
-        side: "SELL",
-        price: cfg.scratchPrice,
-        size: loserSize,
-        label: `SELL ${winner === "YES" ? "NO" : "YES"} scratch`,
-        negRisk: cfg.negRisk,
-        tickSize: cfg.tickSize,
-      });
-      if (scratchResult.success) {
-        cycle.scratchOrderId = dedupeScratch;
-        cycle.scratchExchangeOrderId = scratchResult.orderID;
-        this.logCycle(cycle, "SCRATCH_PLACED", `Scratch order: SELL loser ${loserSize} @ ${cfg.scratchPrice} (${scratchResult.orderID})`);
+      if (!this.dedupeKeys.has(dedupeTpNo)) {
+        this.dedupeKeys.add(dedupeTpNo);
+        const tpNoResult = await this.placeOrder({
+          tokenId: tokenNo,
+          side: "SELL",
+          price: tpPrice,
+          size: cycle.noFilledSize,
+          label: "SELL NO TP (dual)",
+          negRisk: cfg.negRisk,
+          tickSize: cfg.tickSize,
+        });
+        if (tpNoResult.success) {
+          cycle.tpNoExchangeOrderId = tpNoResult.orderID;
+          this.logCycle(cycle, "TP_NO_PLACED", `TP NO: SELL ${cycle.noFilledSize} @ ${tpPrice} (${tpNoResult.orderID})`);
+        }
+      }
+    } else {
+      const winner = await this.determineWinner(cycle);
+      cycle.winnerSide = winner;
+      this.logCycle(cycle, "HEDGED", `Both legs filled. Winner: ${winner}`);
+
+      const winnerToken = winner === "YES" ? tokenYes : tokenNo;
+      const loserToken = winner === "YES" ? tokenNo : tokenYes;
+      const winnerSize = winner === "YES" ? cycle.yesFilledSize : cycle.noFilledSize;
+      const loserSize = winner === "YES" ? cycle.noFilledSize : cycle.yesFilledSize;
+
+      const dedupeTp = `tp-${cycle.cycleNumber}`;
+      const dedupeScratch = `scratch-${cycle.cycleNumber}`;
+
+      if (!this.dedupeKeys.has(dedupeTp)) {
+        this.dedupeKeys.add(dedupeTp);
+        const tpResult = await this.placeOrder({
+          tokenId: winnerToken,
+          side: "SELL",
+          price: tpPrice,
+          size: winnerSize,
+          label: `SELL ${winner} TP`,
+          negRisk: cfg.negRisk,
+          tickSize: cfg.tickSize,
+        });
+        if (tpResult.success) {
+          cycle.tpOrderId = dedupeTp;
+          cycle.tpExchangeOrderId = tpResult.orderID;
+          this.logCycle(cycle, "TP_PLACED", `TP order: SELL ${winner} ${winnerSize} @ ${tpPrice} (${tpResult.orderID})`);
+        }
+      }
+
+      if (!this.dedupeKeys.has(dedupeScratch)) {
+        this.dedupeKeys.add(dedupeScratch);
+        const scratchResult = await this.placeOrder({
+          tokenId: loserToken,
+          side: "SELL",
+          price: cfg.scratchPrice,
+          size: loserSize,
+          label: `SELL ${winner === "YES" ? "NO" : "YES"} scratch`,
+          negRisk: cfg.negRisk,
+          tickSize: cfg.tickSize,
+        });
+        if (scratchResult.success) {
+          cycle.scratchOrderId = dedupeScratch;
+          cycle.scratchExchangeOrderId = scratchResult.orderID;
+          this.logCycle(cycle, "SCRATCH_PLACED", `Scratch order: SELL loser ${loserSize} @ ${cfg.scratchPrice} (${scratchResult.orderID})`);
+        }
       }
     }
 
@@ -633,34 +682,63 @@ export class DualEntry5mEngine {
   private async checkExitFills(cycle: CycleContext, slotKey: string): Promise<void> {
     if (!cycle) return;
 
-    if (!cycle.tpFilled && cycle.tpExchangeOrderId) {
-      const status = await this.getOrderStatus(cycle.tpExchangeOrderId);
-      if (status && parseFloat(status.size_matched || "0") > 0) {
-        cycle.tpFilled = true;
-        this.logCycle(cycle, "TP_FILLED", `TP filled`);
-
-        if (this.config?.smartScratchCancel && cycle.scratchExchangeOrderId && !cycle.scratchFilled) {
-          this.logCycle(cycle, "SMART_CANCEL", "TP filled → cancelling scratch (smart cancel)");
-          await this.cancelOrder(cycle.scratchExchangeOrderId, "smart scratch cancel after TP fill");
-          cycle.scratchFilled = false;
+    if (this.config?.dualTpMode) {
+      if (!cycle.tpYesFilled && cycle.tpYesExchangeOrderId) {
+        const status = await this.getOrderStatus(cycle.tpYesExchangeOrderId);
+        if (status && parseFloat(status.size_matched || "0") > 0) {
+          cycle.tpYesFilled = true;
+          this.logCycle(cycle, "TP_YES_FILLED", `TP YES filled`);
         }
       }
-    }
 
-    if (!cycle.scratchFilled && cycle.scratchExchangeOrderId) {
-      const status = await this.getOrderStatus(cycle.scratchExchangeOrderId);
-      if (status && parseFloat(status.size_matched || "0") > 0) {
-        cycle.scratchFilled = true;
-        this.logCycle(cycle, "SCRATCH_FILLED", `Scratch filled`);
+      if (!cycle.tpNoFilled && cycle.tpNoExchangeOrderId) {
+        const status = await this.getOrderStatus(cycle.tpNoExchangeOrderId);
+        if (status && parseFloat(status.size_matched || "0") > 0) {
+          cycle.tpNoFilled = true;
+          this.logCycle(cycle, "TP_NO_FILLED", `TP NO filled`);
+        }
       }
-    }
 
-    if (cycle.tpFilled && cycle.scratchFilled) {
-      await this.completeCycle(cycle, slotKey, "FULL_EXIT");
-    } else if (cycle.tpFilled && this.config?.smartScratchCancel) {
-      await this.completeCycle(cycle, slotKey, "TP_HIT");
-    } else if (cycle.tpFilled) {
-      await this.completeCycle(cycle, slotKey, "TP_HIT");
+      if (cycle.tpYesFilled && cycle.tpNoFilled) {
+        cycle.tpFilled = true;
+        await this.completeCycle(cycle, slotKey, "DUAL_TP_HIT");
+      } else if (cycle.tpYesFilled || cycle.tpNoFilled) {
+        const tpPrice = cycle.actualTpPrice ?? this.config.tpPrice;
+        const entryPrice = cycle.actualEntryPrice ?? this.config.entryPrice;
+        const filledSide = cycle.tpYesFilled ? "YES" : "NO";
+        const pendingSide = cycle.tpYesFilled ? "NO" : "YES";
+        this.logCycle(cycle, "DUAL_TP_PARTIAL", `${filledSide} TP filled, waiting for ${pendingSide} TP...`);
+      }
+    } else {
+      if (!cycle.tpFilled && cycle.tpExchangeOrderId) {
+        const status = await this.getOrderStatus(cycle.tpExchangeOrderId);
+        if (status && parseFloat(status.size_matched || "0") > 0) {
+          cycle.tpFilled = true;
+          this.logCycle(cycle, "TP_FILLED", `TP filled`);
+
+          if (this.config?.smartScratchCancel && cycle.scratchExchangeOrderId && !cycle.scratchFilled) {
+            this.logCycle(cycle, "SMART_CANCEL", "TP filled → cancelling scratch (smart cancel)");
+            await this.cancelOrder(cycle.scratchExchangeOrderId, "smart scratch cancel after TP fill");
+            cycle.scratchFilled = false;
+          }
+        }
+      }
+
+      if (!cycle.scratchFilled && cycle.scratchExchangeOrderId) {
+        const status = await this.getOrderStatus(cycle.scratchExchangeOrderId);
+        if (status && parseFloat(status.size_matched || "0") > 0) {
+          cycle.scratchFilled = true;
+          this.logCycle(cycle, "SCRATCH_FILLED", `Scratch filled`);
+        }
+      }
+
+      if (cycle.tpFilled && cycle.scratchFilled) {
+        await this.completeCycle(cycle, slotKey, "FULL_EXIT");
+      } else if (cycle.tpFilled && this.config?.smartScratchCancel) {
+        await this.completeCycle(cycle, slotKey, "TP_HIT");
+      } else if (cycle.tpFilled) {
+        await this.completeCycle(cycle, slotKey, "TP_HIT");
+      }
     }
   }
 
@@ -765,7 +843,11 @@ export class DualEntry5mEngine {
     const entryPrice = cycle.actualEntryPrice ?? cfg.entryPrice;
     const tpPrice = cycle.actualTpPrice ?? cfg.tpPrice;
 
-    if (outcome === "FULL_EXIT" || outcome === "TP_HIT") {
+    if (outcome === "DUAL_TP_HIT") {
+      const entryCost = (cycle.yesFilledSize * entryPrice) + (cycle.noFilledSize * entryPrice);
+      const exitRevenue = (cycle.yesFilledSize * tpPrice) + (cycle.noFilledSize * tpPrice);
+      pnl = exitRevenue - entryCost;
+    } else if (outcome === "FULL_EXIT" || outcome === "TP_HIT") {
       const entryCost = (cycle.yesFilledSize * entryPrice) + (cycle.noFilledSize * entryPrice);
       const exitRevenue = (cycle.tpFilled ? (cycle.winnerSide === "YES" ? cycle.yesFilledSize : cycle.noFilledSize) * tpPrice : 0)
         + (cycle.scratchFilled ? (cycle.winnerSide === "YES" ? cycle.noFilledSize : cycle.yesFilledSize) * cfg.scratchPrice : 0);
@@ -790,6 +872,12 @@ export class DualEntry5mEngine {
     }
     if (cycle.scratchExchangeOrderId && !cycle.scratchFilled) {
       await this.cancelOrder(cycle.scratchExchangeOrderId, "cleanup scratch");
+    }
+    if (cycle.tpYesExchangeOrderId && !cycle.tpYesFilled) {
+      await this.cancelOrder(cycle.tpYesExchangeOrderId, "cleanup TP YES");
+    }
+    if (cycle.tpNoExchangeOrderId && !cycle.tpNoFilled) {
+      await this.cancelOrder(cycle.tpNoExchangeOrderId, "cleanup TP NO");
     }
 
     cycle.outcome = `CLEANUP: ${reason}`;
@@ -948,6 +1036,7 @@ export class DualEntry5mEngine {
       hourFilterAllowed: (c.hourFilterAllowed as number[]) || [],
       multiMarketEnabled: c.multiMarketEnabled,
       additionalMarkets: (c.additionalMarkets as MarketSlot[]) || [],
+      dualTpMode: c.dualTpMode,
       autoRotate5m: c.autoRotate5m,
       autoRotate5mAsset: c.autoRotate5mAsset || "btc",
     };

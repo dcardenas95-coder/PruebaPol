@@ -547,7 +547,7 @@ export default function DualEntry5m() {
     entryPrice: 0.45, tpPrice: 0.65, scratchPrice: 0.45,
     entryLeadSecondsPrimary: 180, entryLeadSecondsRefresh: 30,
     postStartCleanupSeconds: 10, exitTtlSeconds: 120, orderSize: 5, isDryRun: true,
-    smartScratchCancel: true,
+    smartScratchCancel: true, dualTpMode: false,
     volFilterEnabled: false, volMinThreshold: 0.3, volMaxThreshold: 5.0, volWindowMinutes: 15,
     dynamicEntryEnabled: false, dynamicEntryMin: 0.40, dynamicEntryMax: 0.48,
     momentumTpEnabled: false, momentumTpMin: 0.55, momentumTpMax: 0.75, momentumWindowMinutes: 5,
@@ -563,7 +563,7 @@ export default function DualEntry5m() {
         entryLeadSecondsPrimary: config.entryLeadSecondsPrimary, entryLeadSecondsRefresh: config.entryLeadSecondsRefresh,
         postStartCleanupSeconds: config.postStartCleanupSeconds, exitTtlSeconds: config.exitTtlSeconds,
         orderSize: config.orderSize, isDryRun: config.isDryRun,
-        smartScratchCancel: config.smartScratchCancel,
+        smartScratchCancel: config.smartScratchCancel, dualTpMode: config.dualTpMode ?? false,
         volFilterEnabled: config.volFilterEnabled, volMinThreshold: config.volMinThreshold,
         volMaxThreshold: config.volMaxThreshold, volWindowMinutes: config.volWindowMinutes,
         dynamicEntryEnabled: config.dynamicEntryEnabled, dynamicEntryMin: config.dynamicEntryMin,
@@ -761,14 +761,28 @@ export default function DualEntry5m() {
             <CardTitle className="text-sm font-medium">Cancelaci\u00f3n inteligente</CardTitle>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <Label>Cancelar scratch al llenar TP</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Cuando el TP se llena, cancela el scratch inmediatamente en vez de esperar</p>
+              <Label>Modo Dual TP (TP en ambos lados)</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">Coloca SELL TP en YES y NO al mismo precio. Ideal para mercados 5M con alta oscilación donde ambos lados pueden llenarse.</p>
             </div>
-            <Switch checked={form.smartScratchCancel} onCheckedChange={(v) => setForm(s => ({ ...s, smartScratchCancel: v }))} data-testid="switch-smart-scratch" />
+            <Switch checked={form.dualTpMode} onCheckedChange={(v) => setForm(s => ({ ...s, dualTpMode: v, ...(v ? { smartScratchCancel: false } : {}) }))} data-testid="switch-dual-tp" />
           </div>
+          {form.dualTpMode && (
+            <div className="rounded-md bg-emerald-500/10 border border-emerald-500/20 p-2.5 text-xs text-emerald-300">
+              <strong>Dual TP activo:</strong> Al llenarse ambas entradas (YES + NO), se coloca SELL TP en ambos lados al precio TP ({form.tpPrice || "0.60"}). Sin scratch, sin cancelaciones. Ganancia potencial: 2 × (TP - Entry) × Size.
+            </div>
+          )}
+          {!form.dualTpMode && (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label>Cancelar scratch al llenar TP</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">Cuando el TP se llena, cancela el scratch inmediatamente en vez de esperar</p>
+              </div>
+              <Switch checked={form.smartScratchCancel} onCheckedChange={(v) => setForm(s => ({ ...s, smartScratchCancel: v }))} data-testid="switch-smart-scratch" />
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -27,6 +27,10 @@ export interface CycleContext {
   scratchOrderId?: string;
   tpExchangeOrderId?: string;
   scratchExchangeOrderId?: string;
+  tpYesExchangeOrderId?: string;
+  tpNoExchangeOrderId?: string;
+  tpYesFilled: boolean;
+  tpNoFilled: boolean;
   tpFilled: boolean;
   scratchFilled: boolean;
   outcome?: string;
@@ -76,6 +80,7 @@ export interface StrategyConfig {
   hourFilterAllowed: number[];
   multiMarketEnabled: boolean;
   additionalMarkets: MarketSlot[];
+  dualTpMode: boolean;
   autoRotate5m: boolean;
   autoRotate5mAsset: string;
 }
