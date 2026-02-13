@@ -21,6 +21,7 @@ import {
   WifiOff,
   Cable,
   RefreshCw,
+  Wallet,
 } from "lucide-react";
 import type { BotStatus } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -206,6 +207,11 @@ export default function Overview() {
     refetchInterval: 2000,
   });
 
+  const { data: walletBalance } = useQuery<{ initialized: boolean; walletAddress: string | null; usdc: string | null; allowance: string | null }>({
+    queryKey: ["/api/trading/wallet-balance"],
+    refetchInterval: 15000,
+  });
+
   const toggleMutation = useMutation({
     mutationFn: async () => {
       const newState = !status?.config.isActive;
@@ -314,7 +320,14 @@ export default function Overview() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <StatCard
+          title="Wallet Balance"
+          value={walletBalance?.initialized ? `$${parseFloat(walletBalance.usdc || "0").toFixed(2)}` : "—"}
+          icon={Wallet}
+          subtitle={walletBalance?.initialized ? `${walletBalance.walletAddress?.slice(0, 6)}...${walletBalance.walletAddress?.slice(-4)}` : "Wallet no conectada"}
+          testId="card-wallet-balance"
+        />
         <StatCard
           title="Daily PnL"
           value={`$${dailyPnl.toFixed(2)}`}

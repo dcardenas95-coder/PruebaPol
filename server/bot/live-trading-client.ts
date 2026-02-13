@@ -131,6 +131,22 @@ export class LiveTradingClient {
     }
   }
 
+  async getCollateralBalance(): Promise<BalanceInfo | null> {
+    if (!this.client || !this.initialized) return null;
+    try {
+      const result = await this.client.getBalanceAllowance({
+        asset_type: "COLLATERAL",
+      } as any);
+      return {
+        balance: result?.balance ?? "0",
+        allowance: result?.allowance ?? "0",
+      };
+    } catch (error: any) {
+      console.error("[LiveTrading] Collateral balance check error:", error.message);
+      return null;
+    }
+  }
+
   async placeOrder(params: {
     tokenId: string;
     side: "BUY" | "SELL";

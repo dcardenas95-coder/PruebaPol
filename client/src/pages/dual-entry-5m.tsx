@@ -25,6 +25,7 @@ import {
   Radio,
   ExternalLink,
   CircleDot,
+  Wallet,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -280,6 +281,11 @@ export default function DualEntry5m() {
     refetchInterval: 5000,
   });
 
+  const { data: walletBalance } = useQuery<{ initialized: boolean; walletAddress: string | null; usdc: string | null }>({
+    queryKey: ["/api/trading/wallet-balance"],
+    refetchInterval: 15000,
+  });
+
   const [form, setForm] = useState({
     entryPrice: 0.45,
     tpPrice: 0.65,
@@ -395,6 +401,36 @@ export default function DualEntry5m() {
           </CardContent>
         </Card>
       )}
+
+      <Card data-testid="card-de-wallet-balance">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-md bg-muted">
+                <Wallet className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Balance USDC</p>
+                <p className="text-lg font-bold font-mono" data-testid="text-de-wallet-usdc">
+                  {walletBalance?.initialized ? `$${parseFloat(walletBalance.usdc || "0").toFixed(2)}` : "—"}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              {walletBalance?.initialized ? (
+                <div>
+                  <Badge variant="outline" className="text-xs">
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-500" />
+                    {walletBalance.walletAddress?.slice(0, 6)}...{walletBalance.walletAddress?.slice(-4)}
+                  </Badge>
+                </div>
+              ) : (
+                <Badge variant="secondary" className="text-xs">Wallet no conectada</Badge>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {status?.currentCycle && <CycleTimeline cycle={status.currentCycle as any} />}
 

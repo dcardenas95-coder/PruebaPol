@@ -508,6 +508,27 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/trading/wallet-balance", async (_req, res) => {
+    try {
+      if (!liveTradingClient.isInitialized()) {
+        return res.json({
+          initialized: false,
+          walletAddress: null,
+          usdc: null,
+        });
+      }
+      const collateral = await liveTradingClient.getCollateralBalance();
+      res.json({
+        initialized: true,
+        walletAddress: liveTradingClient.getWalletAddress(),
+        usdc: collateral ? collateral.balance : "0",
+        allowance: collateral ? collateral.allowance : "0",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/trading/balance/:tokenId", async (req, res) => {
     try {
       const { tokenId } = req.params;
