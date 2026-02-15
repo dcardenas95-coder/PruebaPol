@@ -1,0 +1,367 @@
+PolyMaker — Plan de Mejora Estratégica v2.0
+Fecha: 15 de febrero de 2026
+Basado en: Auditoría técnica STRATEGY_TECHNICAL_AUDIT.md + Análisis P&L sesión paper 2026-02-15
+Autor: Consultoría de Estrategia Algorítmica
+
+Diagnóstico: ¿Por Qué Perdió -$27.74 (-37.82%)?
+Antes de proponer mejoras, es fundamental entender qué falló. Cruzando el P&L real con la arquitectura del código, identifico 5 causas raíz:
+Causa 1: El bot no tiene "edge" — opera sin ventaja informacional
+Los bots exitosos en Polymarket BTC 5m/15m (como "gabagool22" que genera $1,700+/día solo en maker rebates) explotan latencia de precios: monitorean Binance WebSocket en tiempo real y detectan cuando el precio spot de BTC ya se movió pero Polymarket aún no lo refleja. Tu bot en cambio usa getBestSide() que simplemente mira la profundidad del orderbook — esto no es un edge, es reaccionar a información que todos ya ven.
+Causa 2: La estrategia Legacy FSM compra caro por diseño
+La lógica de entrada en MAKING (línea 780-802) compra al bestBid, que es el precio más alto del lado comprador. En un mercado 50/50, esto significa comprar entre $0.45-$0.55. Pero el TP requiere que el precio suba $0.03-$0.05 adicionales. En un mercado de 5 minutos con BTC moviéndose ~0.1-0.3%, la probabilidad de que el precio suba 3-5 centavos después de tu compra es baja.
+Causa 3: Sin stop-loss en la estrategia Legacy FSM
+El Risk Manager tiene maxDailyLoss y maxConsecutiveLosses, pero no hay stop-loss por trade individual. El Trade 7 perdió 78% de su valor ($12.80 → $2.80) sin que ningún mecanismo lo detuviera. La FSM solo corta pérdidas al llegar a HEDGE_LOCK (45s antes del fin), pero para entonces el mercado ya castigó la posición.
+Causa 4: La cascada de ventas amplifica pérdidas
+Las ventas en cascada después del Trade 10 (20→10→5→2.5→1.25→...) son un patrón martingale inverso que divide la posición en piezas cada vez más pequeñas a precios decrecientes. Esto genera más transacciones (más fees) y recupera menos capital que una sola venta agresiva al mejor precio disponible.
+Causa 5: Escalamiento prematuro sin validación
+El bot escaló de $1 a $20 por trade sin demostrar rentabilidad. El único trade ganador ($0.04 de profit) se usó como señal para escalar 20x.
+
+Estrategia Propuesta: Latency-Informed Market Making (LIMM)
+La mejora fundamental es darle al bot un edge real basado en información que el mercado aún no ha procesado.
+Principio Central
+
+Monitorear el precio spot de BTC en Binance via WebSocket. Cuando detectas un movimiento confirmado (e.g., BTC sube $50 en 10 segundos), la probabilidad real de "Up" ya es ~70-85%, pero Polymarket aún puede mostrar 50/50. Comprar el lado correcto antes de que el orderbook se ajuste.
+
+Componente Nuevo: Binance Price Oracle
+┌─────────────────────────────────────────────────────────┐
+│              NUEVO: Binance Price Oracle                  │
+│                                                           │
+│  Binance WS (btcusdt@trade) ─────► Price Buffer (100ms)  │
+│                                          │                │
+│  ┌───────────────────────────────────────┘                │
+│  │                                                        │
+│  ▼                                                        │
+│  Market Opening Price ◄── Capturar al inicio de ventana   │
+│  Current Price ◄── Actualización en tiempo real            │
+│  Delta = Current - Opening                                │
+│  Direction = UP si delta > threshold, DOWN si < -threshold │
+│  Confidence = f(|delta|, time_elapsed, volatility)        │
+│                                                           │
+│  Señal de trading:                                        │
+│  ├── STRONG_UP:  delta > $30 AND conf > 0.75              │
+│  ├── WEAK_UP:    delta > $15 AND conf > 0.60              │
+│  ├── NEUTRAL:    |delta| < $15                            │
+│  ├── WEAK_DOWN:  delta < -$15 AND conf > 0.60             │
+│  └── STRONG_DOWN: delta < -$30 AND conf > 0.75            │
+└─────────────────────────────────────────────────────────┘
+Implementación sugerida:
+typescript// server/bot/binance-oracle.ts
+interface PriceSignal {
+  direction: 'UP' | 'DOWN' | 'NEUTRAL';
+  strength: 'STRONG' | 'WEAK' | 'NONE';
+  confidence: number;       // 0.0 - 1.0
+  delta: number;            // Current - Opening price
+  openingPrice: number;
+  currentPrice: number;
+  elapsedMs: number;        // Tiempo desde apertura del mercado
+}
+
+class BinanceOracle {
+  private ws: WebSocket;
+  private openingPrice: number = 0;
+  private currentPrice: number = 0;
+  private priceBuffer: number[] = [];
+  
+  // Parámetros configurables
+  private STRONG_THRESHOLD = 30;   // USD
+  private WEAK_THRESHOLD = 15;     // USD
+  private MIN_CONFIDENCE = 0.60;
+  
+  getSignal(marketElapsedMs: number): PriceSignal {
+    const delta = this.currentPrice - this.openingPrice;
+    const absDelta = Math.abs(delta);
+    
+    // Confianza aumenta con: mayor delta, más tiempo transcurrido, 
+    // consistencia de dirección
+    const timeFactor = Math.min(1, marketElapsedMs / 180000); // max a 3min
+    const priceFactor = Math.min(1, absDelta / 50);
+    const consistency = this.getDirectionConsistency(); // 0-1
+    
+    const confidence = (priceFactor * 0.5) + (timeFactor * 0.2) + (consistency * 0.3);
+    
+    let direction: 'UP' | 'DOWN' | 'NEUTRAL' = 'NEUTRAL';
+    let strength: 'STRONG' | 'WEAK' | 'NONE' = 'NONE';
+    
+    if (absDelta >= this.STRONG_THRESHOLD && confidence >= 0.75) {
+      direction = delta > 0 ? 'UP' : 'DOWN';
+      strength = 'STRONG';
+    } else if (absDelta >= this.WEAK_THRESHOLD && confidence >= this.MIN_CONFIDENCE) {
+      direction = delta > 0 ? 'UP' : 'DOWN';
+      strength = 'WEAK';
+    }
+    
+    return { direction, strength, confidence, delta, 
+             openingPrice: this.openingPrice, 
+             currentPrice: this.currentPrice, 
+             elapsedMs: marketElapsedMs };
+  }
+}
+
+Mejoras por Componente
+1. MAKING — Entrada Informada (Legacy FSM)
+Problema actual: Compra al bestBid basado solo en profundidad del orderbook.
+Mejora propuesta:
+ANTES:
+  getBestSide() → bidDepth > askDepth × 1.2 → BUY
+  
+DESPUÉS:
+  1. Obtener señal de Binance Oracle
+  2. SI signal.strength == 'STRONG':
+     → Comprar lado alineado con dirección (UP→YES, DOWN→NO)
+     → Usar MAKER order (limit) al bestBid para ganar rebates
+     → Size = orderSize × 1.5 (mayor convicción)
+  3. SI signal.strength == 'WEAK':
+     → Comprar lado alineado pero size = orderSize × 0.75
+  4. SI signal.direction == 'NEUTRAL':
+     → NO OPERAR (esperar señal clara)
+     → Esta es la mejora más importante: no forzar trades
+Cambio clave: Reemplazar getBestSide() por getOracleAlignedSide():
+typescript// Reemplazar en strategy-engine.ts
+getOracleAlignedSide(signal: PriceSignal): { side: 'YES' | 'NO' | null, size: number } {
+  if (signal.strength === 'NONE' || signal.direction === 'NEUTRAL') {
+    return { side: null, size: 0 }; // NO OPERAR
+  }
+  
+  const side = signal.direction === 'UP' ? 'YES' : 'NO';
+  const sizeMultiplier = signal.strength === 'STRONG' ? 1.5 : 0.75;
+  
+  return { side, size: this.config.orderSize * sizeMultiplier };
+}
+2. STOP-LOSS Individual por Trade (NUEVO)
+Componente inexistente que debe crearse.
+typescript// Agregar a strategy-engine.ts o crear server/bot/stop-loss-manager.ts
+
+interface StopLossConfig {
+  maxLossPercent: number;      // Default: 15% del costo de entrada
+  trailingEnabled: boolean;    // Trailing stop
+  trailingPercent: number;     // Default: 10%
+  timeDecayEnabled: boolean;   // Stop más agresivo conforme pasa el tiempo
+}
+
+class StopLossManager {
+  checkStopLoss(position: Position, currentPrice: number, 
+                remainingMs: number): boolean {
+    const entryValue = position.size * position.avgEntryPrice;
+    const currentValue = position.size * currentPrice;
+    const lossPct = (entryValue - currentValue) / entryValue;
+    
+    // Stop fijo: 15% de pérdida
+    if (lossPct >= this.config.maxLossPercent) {
+      return true; // SALIR
+    }
+    
+    // Time decay: conforme queda menos tiempo, el stop se ajusta
+    if (this.config.timeDecayEnabled) {
+      const timeProgress = 1 - (remainingMs / 300000); // 0→1 en 5min
+      const adjustedStop = this.config.maxLossPercent * (1 - timeProgress * 0.5);
+      // A mitad de mercado, stop = 10% en vez de 15%
+      // A 1 min del final, stop = 7.5%
+      if (lossPct >= adjustedStop) return true;
+    }
+    
+    // Trailing stop: si el precio subió y luego cayó
+    if (this.config.trailingEnabled && position.highWaterMark) {
+      const dropFromHigh = (position.highWaterMark - currentPrice) / position.highWaterMark;
+      if (dropFromHigh >= this.config.trailingPercent) return true;
+    }
+    
+    return false;
+  }
+}
+Integración en el tick:
+tick() {
+  ...
+  // NUEVO: Check stop-loss ANTES de cualquier otra lógica
+  for (const position of openPositions) {
+    if (stopLossManager.checkStopLoss(position, currentBid, remainingMs)) {
+      await cancelAllTPOrders(position);
+      await placeMarketSell(position, bestBid - 0.005); // Salida inmediata
+      logEvent('STOP_LOSS_TRIGGERED', { position, loss: calculatedLoss });
+    }
+  }
+  ...
+}
+3. Dual-Entry 5m — Mejoras al Pricing
+Problema actual: entryPrice fijo o con dynamic entry basado solo en spread.
+Mejora propuesta: Entry Price Oracle-Informed
+ANTES (actual):
+  Si spread > 0.20 → entryPrice = dynamicEntryMin (conservador)
+  Si spread < 0.05 → entryPrice = dynamicEntryMax (agresivo)
+  
+DESPUÉS (propuesto):
+  1. Obtener señal de Binance Oracle
+  2. Calcular el entry price del lado que PROBABLEMENTE ganará:
+     - Si Oracle dice STRONG_UP → el YES probablemente ganará
+     - Para YES: usar entryPrice hasta dynamicEntryMax (más agresivo)
+     - Para NO: usar entryPrice = dynamicEntryMin (conservador)
+  3. Si Oracle dice NEUTRAL → ambos lados a dynamicEntryMin
+El TP dinámico también debe informarse del Oracle:
+ANTES:
+  momentum = getMomentum(windowMinutes) → flat/strong → tp ajustado
+  
+DESPUÉS:
+  oracleSignal + momentum del volatilityTracker combinados:
+  - Oracle STRONG + momentum strong → TP agresivo (momentumTpMax)
+  - Oracle STRONG + momentum flat → TP moderado
+  - Oracle NEUTRAL → TP conservador (momentumTpMin)
+4. Eliminación de la Cascada de Ventas
+Problema: Las ventas en cascada (20→10→5→2.5→...) generan más fees y recuperan menos.
+Solución: Una sola orden de salida al mejor precio disponible.
+ANTES (actual):
+  HEDGE_LOCK genera múltiples órdenes escalonadas a precios decrecientes
+  
+DESPUÉS:
+  HEDGE_LOCK: UNA sola orden por posición
+  → Precio = bestBid - 0.01 (cruzar spread inmediatamente)
+  → Si no se llena en 5s → re-price a bestBid - 0.02
+  → Si no se llena en 10s → re-price a 0.01 (fire sale)
+  → Máximo 3 re-prices, no fraccionar la posición
+typescript// Reemplazar lógica de HEDGE_LOCK en strategy-engine.ts
+async handleHedgeLock(position: Position, remainingMs: number): Promise<void> {
+  // Cancelar TODAS las órdenes existentes primero
+  await this.cancelAllOrders();
+  
+  // UNA sola orden de salida agresiva
+  const urgency = remainingMs <= 20000 ? 'CRITICAL' : 
+                  remainingMs <= 30000 ? 'HIGH' : 'MEDIUM';
+  
+  const priceOffset = urgency === 'CRITICAL' ? 0.02 : 
+                      urgency === 'HIGH' ? 0.01 : 0.005;
+  
+  const exitPrice = Math.max(0.01, bestBid - priceOffset);
+  
+  await this.placeOrder({
+    side: 'SELL',
+    price: exitPrice,
+    size: position.size, // TODA la posición, sin fraccionar
+    tokenId: position.tokenId,
+  });
+  
+  // Programar re-price si no se llena
+  setTimeout(() => this.repriceIfNeeded(position, 0.02), 5000);
+  setTimeout(() => this.repriceIfNeeded(position, 0.05), 10000);
+}
+5. Maker Orders y Rebates (Cambio Estructural)
+Insight clave de la investigación: En Polymarket, los taker fees son ~1.5% a precio 50¢, pero los maker orders pagan 0% fees y GANAN rebates. El 100% de los taker fees se redistribuyen a makers diariamente.
+Cambio fundamental: Todas las órdenes de entrada deben ser limit orders que se sientan en el orderbook (maker), no market orders que cruzan el spread (taker).
+REGLA: NUNCA cruzar el spread para entrar
+  - BUY YES: colocar limit order al bestBid (o bestBid + 0.005)
+  - BUY NO: colocar limit order al bestBid (o bestBid + 0.005)
+  - SELL (TP): colocar limit order al bestAsk (o bestAsk - 0.005)
+  
+EXCEPCIÓN: Solo cruzar spread para SALIDA DE EMERGENCIA (HEDGE_LOCK)
+Impacto estimado:
+
+Ahorro en fees: ~1.5% por trade × $73 capital = ~$1.10 ahorrado
+Maker rebates: variable pero puede ser $0.50-$2.00/día con volumen suficiente
+
+6. Protección de Capital: Escalamiento Progresivo
+Nueva regla de position sizing:
+typescriptclass ProgressiveSizer {
+  getOrderSize(stats: TradingStats): number {
+    const { winRate, totalTrades, consecutiveWins, consecutiveLosses } = stats;
+    
+    // Nivel 1: Validación (trades 1-20)
+    if (totalTrades < 20) return 1; // $1 por trade
+    
+    // Nivel 2: Confirmación (trades 21-50, requiere winRate > 55%)
+    if (totalTrades < 50) {
+      if (winRate < 0.55) return 1; // Mantener en $1
+      return 5; // Escalar a $5
+    }
+    
+    // Nivel 3: Operación (trades 51+, requiere winRate > 55%)
+    if (winRate < 0.55) return 5; // Bajar a $5
+    if (winRate >= 0.65) return 20; // Escalar a $20
+    return 10; // Tamaño estándar
+    
+    // Reducción por pérdidas consecutivas
+    if (consecutiveLosses >= 2) return Math.max(1, currentSize * 0.5);
+    
+    // Bonus por racha ganadora (máx 1.5x)
+    if (consecutiveWins >= 5) return Math.min(currentSize * 1.25, 20);
+  }
+}
+7. Filtro de Condiciones de Mercado (Market Regime Filter)
+Nuevo componente que evita operar en condiciones desfavorables:
+typescriptinterface MarketRegime {
+  regime: 'TRENDING' | 'RANGING' | 'VOLATILE' | 'DEAD';
+  tradeable: boolean;
+  reason?: string;
+}
+
+class MarketRegimeFilter {
+  // Basado en datos de Binance Oracle + Polymarket orderbook
+  getRegime(): MarketRegime {
+    const vol = this.binanceOracle.getVolatility(5); // 5min
+    const spread = this.marketData.spread;
+    const depth = Math.min(this.marketData.bidDepth, this.marketData.askDepth);
+    
+    // DEAD: Sin liquidez
+    if (depth < 50) return { regime: 'DEAD', tradeable: false, 
+                             reason: 'Liquidez insuficiente' };
+    
+    // VOLATILE: Demasiada volatilidad (riesgo de slippage)
+    if (vol > 0.5) return { regime: 'VOLATILE', tradeable: false, 
+                            reason: `Vol ${vol}% > 0.5% threshold` };
+    
+    // TRENDING: Ideal para operar con el Oracle
+    if (vol > 0.1 && vol <= 0.5) return { regime: 'TRENDING', tradeable: true };
+    
+    // RANGING: BTC plano, difícil ganar
+    if (vol <= 0.1) return { regime: 'RANGING', tradeable: false, 
+                             reason: 'Mercado sin movimiento' };
+    
+    return { regime: 'RANGING', tradeable: true };
+  }
+}
+
+Resumen de Cambios por Archivo
+ArchivoCambioPrioridadNUEVO server/bot/binance-oracle.tsBinance WebSocket price feed + señales🔴 CRÍTICANUEVO server/bot/stop-loss-manager.tsStop-loss individual por trade🔴 CRÍTICANUEVO server/bot/progressive-sizer.tsEscalamiento progresivo basado en performance🔴 CRÍTICANUEVO server/bot/market-regime-filter.tsFiltro de condiciones de mercado🟡 ALTAserver/bot/strategy-engine.tsReemplazar getBestSide() con Oracle, integrar stop-loss en tick, eliminar cascada en HEDGE_LOCK🔴 CRÍTICAserver/bot/market-data.tsAgregar señal del Oracle al MarketData interface🟡 ALTAserver/strategies/dualEntry5m/engine.tsEntry price Oracle-informed, TP dinámico por Oracle🟡 ALTAserver/bot/order-manager.tsForzar maker orders (no cruzar spread), eliminar cascada🟢 MEDIAserver/bot/risk-manager.tsAgregar stop-loss check pre-tick, integrar progressive sizer🟡 ALTADashboard ReactMostrar señales Oracle, regime, stop-loss events🟢 MEDIA
+
+Orden de Implementación Recomendado
+Fase 1: Protección (1-2 días)
+Prioridad: evitar repetir las pérdidas de la sesión del 15 de febrero.
+
+Stop-loss manager — El cambio de mayor impacto inmediato
+Eliminar cascada de ventas — Una orden de salida, no 12
+Progressive sizer — Empezar en $1 hasta demostrar rentabilidad
+
+Fase 2: Edge (3-5 días)
+Prioridad: darle al bot una ventaja real.
+
+Binance Oracle — Conectar WebSocket de Binance, capturar opening price
+Integrar Oracle en MAKING — No operar sin señal
+Market Regime Filter — No operar en condiciones desfavorables
+
+Fase 3: Optimización (1 semana)
+Prioridad: maximizar el edge.
+
+Maker orders obligatorios — 0% fees + rebates
+Oracle-informed Dual Entry — Pricing asimétrico por lado
+TP dinámico por Oracle — Profit targets basados en probabilidad real
+Backtesting framework — Validar cambios contra datos históricos
+
+
+Métricas de Éxito (Paper Trading)
+Antes de pasar a live, el bot debe demostrar en paper trading:
+MétricaMínimo RequeridoIdealWin Rate> 55%> 65%Profit Factor> 1.3> 2.0Max Drawdown< 15% del capital< 8%Sharpe Ratio (diario)> 0.5> 1.5Trades para validar100 mínimo500+Duración validación3 días mínimo7 díasPérdida máxima por trade< 15% del trade< 10%
+
+Nota Final: La Realidad del Mercado
+Los bots más exitosos en Polymarket BTC 5m/15m generan $500-$10,000/día pero comparten estas características:
+
+Latencia sub-50ms al feed de precio de Binance
+Ejecución como maker (0 fees + rebates)
+Win rate >85% gracias a ventaja informacional
+Capital significativo ($4,000-$5,000 por trade)
+VPS colocado cerca de los endpoints de Polymarket
+
+Tu bot actual no tiene ninguna de estas. La mejora más realista para tu caso (targeting $200/mes) es:
+
+Implementar el Binance Oracle como edge principal
+Operar solo con señales fuertes (quizá 10-15 trades/día en vez de 50+)
+Proteger capital agresivamente con stop-loss del 10-15%
+Empezar con $1-5 por trade hasta demostrar rentabilidad consistente
+Correr el bot en un VPS de DigitalOcean NYC (cerca de los endpoints de Polymarket)
+
+Con estas mejoras y disciplina, un objetivo de $5-10/día ($150-300/mes) es alcanzable. Sin ellas, cada sesión se parecerá al -37.82% del 15 de febrero.ArtefactosDescargar todoPolymarket pnl report 2026 02 15Documento · DOCX Polymaker strategy upgrade v2Documento · MD 
