@@ -804,15 +804,35 @@ export class StrategyEngine {
 
   private async executeStrategy(config: BotConfig, data: MarketData): Promise<void> {
     if (!this.marketData.isSpreadSufficient(config.minSpread)) {
+      const lastData = this.marketData.getLastData();
+      await storage.createEvent({
+        type: "INFO",
+        message: `[FILTER] Spread insuficiente: ${lastData?.spread?.toFixed(4) ?? "N/A"} < min ${config.minSpread} — no trade`,
+        data: { filter: "spread", spread: lastData?.spread, minSpread: config.minSpread },
+        level: "info",
+      });
       return;
     }
 
     if (!this.marketData.isMarketActive()) {
+      const lastData = this.marketData.getLastData();
+      await storage.createEvent({
+        type: "INFO",
+        message: `[FILTER] Mercado inactivo: bidDepth=${lastData?.bidDepth?.toFixed(0) ?? "0"} askDepth=${lastData?.askDepth?.toFixed(0) ?? "0"} (min 10) — no trade`,
+        data: { filter: "marketActive", bidDepth: lastData?.bidDepth, askDepth: lastData?.askDepth },
+        level: "info",
+      });
       return;
     }
 
     const regimeResult = marketRegimeFilter.getRegime(data);
     if (!regimeResult.tradeable) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `[FILTER] Regime ${regimeResult.regime}: ${regimeResult.reason} — no trade`,
+        data: { filter: "regime", regime: regimeResult.regime, reason: regimeResult.reason, volatility: regimeResult.volatility, depth: regimeResult.depth, spread: regimeResult.spread },
+        level: "info",
+      });
       return;
     }
 
@@ -843,6 +863,12 @@ export class StrategyEngine {
     const oracleResult = this.getOracleAlignedSide(oracleSignal, config);
 
     if (binanceOracle.isConnected() && !oracleResult.side) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `[FILTER] Oracle NEUTRAL: direction=${oracleSignal.direction} strength=${oracleSignal.strength} delta=$${oracleSignal.delta.toFixed(2)} conf=${(oracleSignal.confidence * 100).toFixed(0)}% — no trade`,
+        data: { filter: "oracle", direction: oracleSignal.direction, strength: oracleSignal.strength, delta: oracleSignal.delta, confidence: oracleSignal.confidence },
+        level: "info",
+      });
       return;
     }
 
@@ -853,6 +879,12 @@ export class StrategyEngine {
 
     const riskCheck = await this.riskManager.checkPreTrade(config, effectiveSize * data.bestBid);
     if (!riskCheck.allowed) {
+      await storage.createEvent({
+        type: "RISK_ALERT",
+        message: `[FILTER] Risk check blocked: ${riskCheck.reason} — no trade`,
+        data: { filter: "risk", reason: riskCheck.reason, warnings: riskCheck.warnings },
+        level: "warn",
+      });
       return;
     }
 
