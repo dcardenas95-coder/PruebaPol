@@ -1,0 +1,2256 @@
+9:53:17
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:53:16.917Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 11,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:53:16
+info
+INFO
+[WS] Market WS: Refreshed asset IDs: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:53:16.916Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:53:16
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:53:16.615Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:53:03
+info
+STATE_CHANGE
+State transition: MAKING -> UNWIND (117s remaining)
+{
+  "to": "UNWIND",
+  "from": "MAKING",
+  "remainingMs": 117233
+}
+09:52:46
+info
+INFO
+[WS] Market WS: Connected (reconnects: 10)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:46.244Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:46
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:46.244Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:45
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:45.644Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:44
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #10/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:43.663Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:43
+info
+INFO
+[WS] Market WS: Refreshed asset IDs: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:43.663Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 9,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:43
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:52:43.644Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:43
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #9/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:43.644Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 9,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:43
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:52:43.519Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:13
+info
+INFO
+[WS] Market WS: Connected (reconnects: 8)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:13.329Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:13
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:13.329Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:12
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:12.616Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:12
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #7/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:10.616Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 7,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:12
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #8/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:10.617Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:10
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:52:10.616Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 7,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:10
+info
+INFO
+[WS] Market WS: Refreshed asset IDs: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:52:10.615Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:10
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:52:10.415Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:52:03
+warn
+ORDER_PLACED
+[LIVE] BUY order placed: 1 @ $0.4500 (exchange: undefined)
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.45,
+  "orderId": "087c93f0-0d8f-42f1-9e90-2ff9aedbeda8",
+  "clientOrderId": "pm-1771174322846-dbae05a2"
+}
+09:52:03
+info
+ORDER_PLACED
+LIVE ORDER ACCEPTED: BUY 1 @ $0.45 (ID: undefined)
+{
+  "response": {
+    "error": "Access restricted. Your request was blocked due to regional restrictions.",
+    "status": 403
+  }
+}
+09:52:03
+warn
+INFO
+LIVE ORDER: BUY 1 @ $0.45
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.45,
+  "negRisk": false,
+  "tokenId": "82579762604537708983869255253764744748105089126297874120379124551393131244513",
+  "tickSize": "0.01",
+  "roundedSize": 1,
+  "roundedPrice": 0.45
+}
+09:51:40
+info
+INFO
+[WS] Market WS: Connected (reconnects: 6)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:40.215Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:40
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:40.215Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:39
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:39.617Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:37
+info
+INFO
+[WS] Market WS: Refreshed asset IDs: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:37.755Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 5,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:37
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #6/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:37.756Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:37
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #5/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:37.616Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 5,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:37
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:51:37.616Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:37
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:51:37.221Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:07
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:07.058Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:07
+info
+INFO
+[WS] Market WS: Connected (reconnects: 4)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:07.058Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:06
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:06.816Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:06
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #3/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:04.815Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 3,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:06
+info
+INFO
+[WS] Market WS: Refreshed asset IDs: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:06.442Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 3,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:06
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #4/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:51:06.442Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:04
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:51:04.815Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:51:04
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:51:04.659Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:44
+error
+ERROR
+[WS] User WS: Max reconnect attempts (15) reached. Stopping.
+{
+  "level": "error",
+  "timestamp": "2026-02-15T16:50:44.415Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:44
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:44.415Z",
+  "userConnected": false,
+  "userReconnects": 15,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:44
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:44.228Z",
+  "userConnected": true,
+  "userReconnects": 15,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:44
+info
+INFO
+[WS] User WS: Connected (reconnects: 15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:44.228Z",
+  "userConnected": true,
+  "userReconnects": 15,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:43
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:43.315Z",
+  "userConnected": false,
+  "userReconnects": 15,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:43
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:43.315Z",
+  "userConnected": false,
+  "userReconnects": 15,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:41
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:41.117Z",
+  "userConnected": false,
+  "userReconnects": 14,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:41
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #15/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:41.117Z",
+  "userConnected": false,
+  "userReconnects": 15,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:41
+info
+INFO
+[WS] User WS: Connected (reconnects: 14)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:40.717Z",
+  "userConnected": true,
+  "userReconnects": 14,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:41
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:40.717Z",
+  "userConnected": true,
+  "userReconnects": 14,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:39
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:39.115Z",
+  "userConnected": false,
+  "userReconnects": 14,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:39
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:39.115Z",
+  "userConnected": false,
+  "userReconnects": 14,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:37
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:37.115Z",
+  "userConnected": false,
+  "userReconnects": 13,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:37
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #14/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:37.115Z",
+  "userConnected": false,
+  "userReconnects": 14,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:36
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:36.976Z",
+  "userConnected": true,
+  "userReconnects": 13,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:36
+info
+INFO
+[WS] User WS: Connected (reconnects: 13)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:36.976Z",
+  "userConnected": true,
+  "userReconnects": 13,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:36
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:36.714Z",
+  "userConnected": false,
+  "userReconnects": 13,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:36
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:36.714Z",
+  "userConnected": false,
+  "userReconnects": 13,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:36
+warn
+ORDER_PLACED
+[LIVE] BUY order placed: 1 @ $0.4300 (exchange: undefined)
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.43,
+  "orderId": "c25aae9b-b906-4ac3-848d-97c968d37c1e",
+  "clientOrderId": "pm-1771174235515-d2c4fdcb"
+}
+09:50:36
+info
+ORDER_PLACED
+LIVE ORDER ACCEPTED: BUY 1 @ $0.43 (ID: undefined)
+{
+  "response": {
+    "error": "Access restricted. Your request was blocked due to regional restrictions.",
+    "status": 403
+  }
+}
+09:50:36
+warn
+INFO
+LIVE ORDER: BUY 1 @ $0.43
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.43,
+  "negRisk": false,
+  "tokenId": "82579762604537708983869255253764744748105089126297874120379124551393131244513",
+  "tickSize": "0.01",
+  "roundedSize": 1,
+  "roundedPrice": 0.43
+}
+09:50:34
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:34.653Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #13/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.653Z",
+  "userConnected": false,
+  "userReconnects": 13,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] Market WS: Connected (reconnects: 2)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.553Z",
+  "userConnected": true,
+  "userReconnects": 12,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.554Z",
+  "userConnected": true,
+  "userReconnects": 12,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.547Z",
+  "userConnected": true,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] User WS: Connected (reconnects: 12)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.546Z",
+  "userConnected": true,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.114Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.001Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:34
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:34.001Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:33
+warn
+ORDER_PLACED
+[LIVE] BUY order placed: 1 @ $0.3900 (exchange: undefined)
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.39,
+  "orderId": "8b803a45-fde1-4551-ab4d-7efe1550e362",
+  "clientOrderId": "pm-1771174232369-e153e85e"
+}
+09:50:32
+info
+ORDER_PLACED
+LIVE ORDER ACCEPTED: BUY 1 @ $0.39 (ID: undefined)
+{
+  "response": {
+    "error": "Access restricted. Your request was blocked due to regional restrictions.",
+    "status": 403
+  }
+}
+09:50:32
+warn
+INFO
+LIVE ORDER: BUY 1 @ $0.39
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.39,
+  "negRisk": false,
+  "tokenId": "82579762604537708983869255253764744748105089126297874120379124551393131244513",
+  "tickSize": "0.01",
+  "roundedSize": 1,
+  "roundedPrice": 0.39
+}
+09:50:32
+info
+INFO
+[WS] Market WS: Refreshed asset IDs: 825797626045...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:32.156Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 1,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:32
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #2/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:32.156Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 1
+}
+09:50:32
+info
+INFO
+[WS] Market WS: Reconnecting in 2000ms (attempt #1/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:32.107Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 1,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:32
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:32.107Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:32
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:32.000Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:32
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #12/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:31.999Z",
+  "userConnected": false,
+  "userReconnects": 12,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:32
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:31.999Z",
+  "userConnected": false,
+  "userReconnects": 11,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:31
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:31.893Z",
+  "userConnected": true,
+  "userReconnects": 11,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:31
+info
+INFO
+[WS] User WS: Connected (reconnects: 11)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:31.892Z",
+  "userConnected": true,
+  "userReconnects": 11,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:30
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:30.816Z",
+  "userConnected": false,
+  "userReconnects": 11,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:30
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:30.816Z",
+  "userConnected": false,
+  "userReconnects": 11,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:28
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #11/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:28.616Z",
+  "userConnected": false,
+  "userReconnects": 11,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:28
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:28.616Z",
+  "userConnected": false,
+  "userReconnects": 10,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:28
+info
+INFO
+[WS] User WS: Connected (reconnects: 10)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:28.415Z",
+  "userConnected": true,
+  "userReconnects": 10,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:28
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:28.415Z",
+  "userConnected": true,
+  "userReconnects": 10,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:28
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:28.116Z",
+  "userConnected": false,
+  "userReconnects": 10,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:28
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:28.116Z",
+  "userConnected": false,
+  "userReconnects": 10,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:26
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #10/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:26.116Z",
+  "userConnected": false,
+  "userReconnects": 10,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:26
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:26.115Z",
+  "userConnected": false,
+  "userReconnects": 9,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:25
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:25.965Z",
+  "userConnected": true,
+  "userReconnects": 9,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:25
+info
+INFO
+[WS] User WS: Connected (reconnects: 9)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:25.964Z",
+  "userConnected": true,
+  "userReconnects": 9,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:25
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:25.716Z",
+  "userConnected": false,
+  "userReconnects": 9,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:25
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:25.716Z",
+  "userConnected": false,
+  "userReconnects": 9,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:23
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:23.715Z",
+  "userConnected": false,
+  "userReconnects": 8,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:23
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #9/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:23.716Z",
+  "userConnected": false,
+  "userReconnects": 9,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:23
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:23.561Z",
+  "userConnected": true,
+  "userReconnects": 8,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:23
+info
+INFO
+[WS] User WS: Connected (reconnects: 8)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:23.560Z",
+  "userConnected": true,
+  "userReconnects": 8,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:22
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:22.915Z",
+  "userConnected": false,
+  "userReconnects": 8,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:22
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:22.915Z",
+  "userConnected": false,
+  "userReconnects": 8,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:20
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #8/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:20.816Z",
+  "userConnected": false,
+  "userReconnects": 8,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:20
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:20.816Z",
+  "userConnected": false,
+  "userReconnects": 7,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:20
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:20.515Z",
+  "userConnected": true,
+  "userReconnects": 7,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:20
+info
+INFO
+[WS] User WS: Connected (reconnects: 7)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:20.515Z",
+  "userConnected": true,
+  "userReconnects": 7,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:19
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:19.662Z",
+  "userConnected": false,
+  "userReconnects": 7,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:19
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:19.662Z",
+  "userConnected": false,
+  "userReconnects": 7,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:17
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #7/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:17.662Z",
+  "userConnected": false,
+  "userReconnects": 7,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:17
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:17.662Z",
+  "userConnected": false,
+  "userReconnects": 6,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:17
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:17.555Z",
+  "userConnected": true,
+  "userReconnects": 6,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:17
+info
+INFO
+[WS] User WS: Connected (reconnects: 6)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:17.555Z",
+  "userConnected": true,
+  "userReconnects": 6,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:17
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:17.316Z",
+  "userConnected": false,
+  "userReconnects": 6,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:17
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:17.316Z",
+  "userConnected": false,
+  "userReconnects": 6,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:15
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:15.315Z",
+  "userConnected": false,
+  "userReconnects": 5,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:15
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #6/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:15.316Z",
+  "userConnected": false,
+  "userReconnects": 6,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:15
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:15.115Z",
+  "userConnected": true,
+  "userReconnects": 5,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:15
+info
+INFO
+[WS] User WS: Connected (reconnects: 5)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:15.115Z",
+  "userConnected": true,
+  "userReconnects": 5,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:14
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:14.815Z",
+  "userConnected": false,
+  "userReconnects": 5,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:14
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:14.815Z",
+  "userConnected": false,
+  "userReconnects": 5,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:12
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #5/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:12.815Z",
+  "userConnected": false,
+  "userReconnects": 5,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:12
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:12.815Z",
+  "userConnected": false,
+  "userReconnects": 4,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:12
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:12.648Z",
+  "userConnected": true,
+  "userReconnects": 4,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:12
+info
+INFO
+[WS] User WS: Connected (reconnects: 4)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:12.648Z",
+  "userConnected": true,
+  "userReconnects": 4,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:12
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:12.367Z",
+  "userConnected": false,
+  "userReconnects": 4,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:12
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:12.367Z",
+  "userConnected": false,
+  "userReconnects": 4,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:10
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #4/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:10.367Z",
+  "userConnected": false,
+  "userReconnects": 4,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:10
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:10.367Z",
+  "userConnected": false,
+  "userReconnects": 3,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:10
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:10.259Z",
+  "userConnected": true,
+  "userReconnects": 3,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:10
+info
+INFO
+[WS] User WS: Connected (reconnects: 3)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:10.258Z",
+  "userConnected": true,
+  "userReconnects": 3,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:09
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:09.316Z",
+  "userConnected": false,
+  "userReconnects": 3,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:09
+info
+INFO
+[WS] User WS: Refreshed API credentials before reconnect
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:09.315Z",
+  "userConnected": false,
+  "userReconnects": 3,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:07
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #3/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:07.243Z",
+  "userConnected": false,
+  "userReconnects": 3,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:07
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:07.242Z",
+  "userConnected": false,
+  "userReconnects": 2,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:07
+info
+INFO
+[WS] User WS: Connected (reconnects: 2)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:07.130Z",
+  "userConnected": true,
+  "userReconnects": 2,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:07
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:07.130Z",
+  "userConnected": true,
+  "userReconnects": 2,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:06
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:06.316Z",
+  "userConnected": false,
+  "userReconnects": 2,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:04
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #2/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:04.316Z",
+  "userConnected": false,
+  "userReconnects": 2,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:04
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:04.315Z",
+  "userConnected": false,
+  "userReconnects": 1,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:04
+info
+INFO
+[WS] User WS: Connected (reconnects: 1)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:04.132Z",
+  "userConnected": true,
+  "userReconnects": 1,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:04
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:04.133Z",
+  "userConnected": true,
+  "userReconnects": 1,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:03
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:03.889Z",
+  "userConnected": false,
+  "userReconnects": 1,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] User WS: Reconnecting in 2000ms (attempt #1/15)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.889Z",
+  "userConnected": false,
+  "userReconnects": 1,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:50:01.889Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] Market WS: Connected (reconnects: 0)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.803Z",
+  "userConnected": true,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] Market WS: Subscribed to 2 assets: 825797626045..., 666321328472...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.803Z",
+  "userConnected": true,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] User WS: Connected (reconnects: 0)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.783Z",
+  "userConnected": true,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] User WS: Subscribed to 2 assets
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.784Z",
+  "userConnected": true,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.549Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+INFO
+[WS] User WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/user...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.550Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 2,
+  "subscribedMarketAssets": 2
+}
+09:50:01
+info
+STATE_CHANGE
+Rotated to new market: btc-updown-5m-1771174200 (299s remaining). Cycle #2 starting.
+{
+  "cycle": 2,
+  "tokenUp": "82579762604537708983869255253764744748105089126297874120379124551393131244513",
+  "newMarket": "btc-updown-5m-1771174200",
+  "tokenDown": "66632132847274355712107170502479398435041179689044463485404030946021701852828",
+  "prevMarket": "btc-updown-5m-1771173900",
+  "timeRemainingMs": 299000
+}
+09:50:01
+info
+INFO
+[WS] All WebSocket connections closed
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:50:01.549Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:50:01
+info
+STATE_CHANGE
+Cycle 1 done. Searching for next 5m BTC market...
+{
+  "asset": "btc",
+  "cycle": 1,
+  "interval": "5m"
+}
+09:50:01
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:50:00
+info
+STATE_CHANGE
+State transition: HEDGE_LOCK -> DONE (0s remaining)
+{
+  "to": "DONE",
+  "from": "HEDGE_LOCK",
+  "remainingMs": 0
+}
+09:49:15
+info
+STATE_CHANGE
+State transition: CLOSE_ONLY -> HEDGE_LOCK (44s remaining)
+{
+  "to": "HEDGE_LOCK",
+  "from": "CLOSE_ONLY",
+  "remainingMs": 44750
+}
+09:49:04
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:49:03
+info
+STATE_CHANGE
+State transition: UNWIND -> CLOSE_ONLY (57s remaining)
+{
+  "to": "CLOSE_ONLY",
+  "from": "UNWIND",
+  "remainingMs": 57000
+}
+09:48:59
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:48:59.416Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:59
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:48:59.214Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:43
+info
+ORDER_CANCELLED
+[LIVE] Order cancelled: pm-1771174026036-db0d6ec6
+{
+  "orderId": "ba81ff2d-cf6a-4f36-96c6-acddbc88c128",
+  "clientOrderId": "pm-1771174026036-db0d6ec6"
+}
+09:48:29
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 181675650488...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:48:29.015Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:29
+info
+INFO
+[WS] Market WS: Connected (reconnects: 16)
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:48:29.015Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:28
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:48:28.115Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:28
+error
+ERROR
+[WS] Market WS: Max reconnect attempts (15) reached. Stopping.
+{
+  "level": "error",
+  "timestamp": "2026-02-15T16:48:28.115Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:28
+info
+INFO
+[WS] Market WS: Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:48:27.879Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": false,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
+09:48:24
+info
+INFO
+[WS] Market WS: Subscribed to 1 assets: 181675650488...
+{
+  "level": "info",
+  "timestamp": "2026-02-15T16:48:24.023Z",
+  "userConnected": false,
+  "userReconnects": 16,
+  "marketConnected": true,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 1,
+  "subscribedMarketAssets": 1
+}
