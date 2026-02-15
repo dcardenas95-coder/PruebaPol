@@ -40,3 +40,8 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_database:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+POLYGON_RPC_URL = "https://wild-orbital-sailboat.matic.quiknode.pro/f8814a0e566c95fa70b0e4aa0d04da1914744668/"
