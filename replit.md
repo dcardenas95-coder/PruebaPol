@@ -79,6 +79,9 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - Professional, information-dense layout
 - Speaks Spanish
 
+## Future Plans
+- **HEDGE_LOCK condicional**: No liquidar agresivamente posiciones muy a favor (precio >$0.90 a favor). Dejar correr para capturar el payout completo ($1.00) cuando la probabilidad es alta. Solo liquidar agresivamente posiciones en zona de riesgo ($0.30-$0.70). Evaluar después de tener datos de win rate con la estrategia actual.
+
 ## Recent Changes
 - 2026-02-15: Fixed market timing alignment - FSM states now sync to actual Polymarket market boundaries using epoch-based interval calculation
 - 2026-02-15: Aggressive liquidation in HEDGE_LOCK (last 45s) - cancels all orders and crosses spread to force position exit before market determination
