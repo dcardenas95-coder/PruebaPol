@@ -720,13 +720,6 @@ export class StrategyEngine {
       return;
     }
 
-    if (!config.isPaperTrading) {
-      const wsHealth = polymarketWs.getHealth();
-      if (!wsHealth.marketConnected) {
-        return;
-      }
-    }
-
     const activeOrders = await this.orderManager.getActiveOrders();
     const entryOrders = activeOrders.filter(o => o.side === "BUY");
     const tpOrders = activeOrders.filter(o => o.side === "SELL");

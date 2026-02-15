@@ -96,12 +96,19 @@ export class MarketDataModule {
     return this.lastData;
   }
 
+  private lastRestFallbackLog = 0;
+
   async getData(): Promise<MarketData> {
     if (this.isWsActive() && this.lastData) {
       return this.lastData;
     }
 
     if (this.currentTokenId && !this.useSimulation) {
+      const now = Date.now();
+      if (now - this.lastRestFallbackLog > 30_000) {
+        this.lastRestFallbackLog = now;
+        console.log(`[MarketData] WS inactive, using REST API fallback | tokenId=${this.currentTokenId.slice(0, 12)}...`);
+      }
       const liveData = await this.fetchLiveData();
       if (liveData) return liveData;
     }
