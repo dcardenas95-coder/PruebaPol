@@ -1,0 +1,102 @@
+root@polymaker:/home/polymaker/app# cd /home/polymaker/app
+pm2 delete polymaker
+pm2 start dist/index.cjs --name polymaker -i 1 --node-args="--max-old-space-size=512" --env-file .env
+sleep 5
+curl -s http://localhost:5000/api/health | head -c 200
+curl -s http://localhost:5000/api/trading/pre-checks | head -c 200
+[PM2] Applying action deleteProcessId on app [polymaker](ids: [ 0 ])
+[PM2] [polymaker](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+
+  error: unknown option `--env-file'
+
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>PolyMaker -<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>PolyMaker -root@polymakercat > ecosystem.config.js << 'EOF'tem.config.js << 'EOF'
+const dotenv = require('dotenv');
+const envConfig = dotenv.config({ path: '.env' }).parsed || {};
+
+module.exports = {
+  apps: [{
+    name: 'polymaker',
+    script: 'dist/index.cjs',
+    instances: 1,
+    exec_mode: 'cluster',
+    node_args: '--max-old-space-size=512',
+    env: envConfig
+  }]
+};
+EOF
+
+pm2 delete polymaker
+pm2 start ecosystem.config.js
+sleep 5
+curl -s http://localhost:5000/api/health | head -c 200
+[PM2][ERROR] Process or Namespace polymaker not found
+[PM2][ERROR] File ecosystem.config.js malformated
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and '/home/polymaker/app/package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///home/polymaker/app/ecosystem.config.js:1:16
+    at ModuleJobSync.runSync (node:internal/modules/esm/module_job:437:37)
+    at ModuleLoader.importSyncForRequire (node:internal/modules/esm/loader:389:47)
+    at loadESMFromCJS (node:internal/modules/cjs/loader:1363:24)
+    at Module._compile (node:internal/modules/cjs/loader:1503:5)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+    at Module.load (node:internal/modules/cjs/loader:1266:32)
+    at Module._load (node:internal/modules/cjs/loader:1091:12)
+    at Module.require (node:internal/modules/cjs/loader:1289:19)
+    at require (node:internal/modules/helpers:182:18)
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>PolyMaker -root@polymakercat > ecosystem.config.cjs << 'EOF'em.config.cjs << 'EOF'
+const dotenv = require('dotenv');
+const envConfig = dotenv.config({ path: '.env' }).parsed || {};
+
+module.exports = {
+  apps: [{
+    name: 'polymaker',
+    script: 'dist/index.cjs',
+    instances: 1,
+    exec_mode: 'cluster',
+    node_args: '--max-old-space-size=512',
+    env: envConfig
+  }]
+};
+EOF
+
+pm2 delete polymaker 2>/dev/null; pm2 start ecosystem.config.cjs
+sleep 5
+curl -s http://localhost:5000/api/health | head -c 200
+curl -s http://localhost:5000/api/trading/pre-checks | head -c 200
+[dotenv@17.3.1] injecting env (5) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[PM2][WARN] Applications polymaker not running, starting...
+[PM2] App [polymaker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ polymaker          │ cluster  │ 0    │ online    │ 0%       │ 37.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>PolyMaker -<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>PolyMaker -root@polymaker:/home/polymaker/app# 
