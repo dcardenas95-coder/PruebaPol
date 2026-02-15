@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { XCircle, RefreshCw } from "lucide-react";
+import { XCircle, RefreshCw, Download } from "lucide-react";
 import type { Order } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -138,6 +138,17 @@ export default function Orders() {
             data-testid="button-refresh-orders"
           >
             <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              window.open("/api/orders/export", "_blank");
+            }}
+            data-testid="button-export-orders"
+          >
+            <Download className="w-4 h-4 mr-1.5" />
+            Export CSV
           </Button>
           {activeOrders.length > 0 && (
             <Button

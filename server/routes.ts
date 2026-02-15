@@ -195,6 +195,34 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/orders/export", async (_req, res) => {
+    try {
+      const allOrders = await storage.getOrders();
+      const headers = ["id", "clientOrderId", "side", "price", "size", "filledSize", "status", "isPaperTrade", "exchangeOrderId", "createdAt", "updatedAt"];
+      const csvRows = [headers.join(",")];
+      for (const o of allOrders) {
+        csvRows.push([
+          o.id,
+          o.clientOrderId,
+          o.side,
+          o.price,
+          o.size,
+          o.filledSize,
+          o.status,
+          o.isPaperTrade ? "PAPER" : "LIVE",
+          o.exchangeOrderId || "",
+          o.createdAt ? new Date(o.createdAt).toISOString() : "",
+          o.updatedAt ? new Date(o.updatedAt).toISOString() : "",
+        ].join(","));
+      }
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=orders_${new Date().toISOString().slice(0, 10)}.csv`);
+      res.send(csvRows.join("\n"));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/orders/:id/cancel", async (req, res) => {
     try {
       const { id } = req.params;
