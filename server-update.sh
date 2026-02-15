@@ -16,7 +16,7 @@ echo "[2/4] Instalando dependencias..."
 npm install
 
 echo "[3/4] Compilando..."
-npm run build
+npx tsx script/build.ts
 
 echo "[4/4] Reiniciando bot..."
 pm2 restart polymaker
