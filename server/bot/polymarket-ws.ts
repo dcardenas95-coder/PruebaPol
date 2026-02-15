@@ -138,6 +138,7 @@ export class PolymarketWebSocket {
     this.onFillCallbacks = [];
     this.onMarketDataCallbacks = [];
     this.onRefreshAssetIdsCallback = null;
+    this.onRefreshApiCredsCallback = null;
     this.log("info", "All WebSocket connections closed");
   }
 
@@ -168,7 +169,12 @@ export class PolymarketWebSocket {
       this.userWs.send(JSON.stringify({
         assets_ids: validIds,
         type: "user",
-        auth: this.apiCreds,
+        auth: {
+          apiKey: this.apiCreds.apiKey,
+          apikey: this.apiCreds.apiKey,
+          secret: this.apiCreds.secret,
+          passphrase: this.apiCreds.passphrase,
+        },
       }));
       this.log("info", `User WS: Updated subscription to ${validIds.length} assets`);
     }
@@ -265,7 +271,12 @@ export class PolymarketWebSocket {
           this.userWs!.send(JSON.stringify({
             assets_ids: this.subscribedUserAssets,
             type: "user",
-            auth: this.apiCreds,
+            auth: {
+              apiKey: this.apiCreds.apiKey,
+              apikey: this.apiCreds.apiKey,
+              secret: this.apiCreds.secret,
+              passphrase: this.apiCreds.passphrase,
+            },
           }));
           this.log("info", `User WS: Subscribed to ${this.subscribedUserAssets.length} assets`);
         }
@@ -475,6 +486,12 @@ export class PolymarketWebSocket {
     }, delay);
   }
 
+  private onRefreshApiCredsCallback: (() => Promise<{ apiKey: string; secret: string; passphrase: string } | null>) | null = null;
+
+  onRefreshApiCreds(cb: () => Promise<{ apiKey: string; secret: string; passphrase: string } | null>): void {
+    this.onRefreshApiCredsCallback = cb;
+  }
+
   private _scheduleUserReconnect(): void {
     if (!this.shouldReconnectUser) return;
 
@@ -488,11 +505,22 @@ export class PolymarketWebSocket {
     const delay = Math.min(this.userReconnectDelay, MAX_RECONNECT_DELAY);
     this.log("info", `User WS: Reconnecting in ${delay}ms (attempt #${this.userReconnects}/${MAX_RECONNECT_ATTEMPTS})`);
 
-    this.userReconnectTimer = setTimeout(() => {
+    this.userReconnectTimer = setTimeout(async () => {
       this.userReconnectDelay = Math.min(
         this.userReconnectDelay * RECONNECT_BACKOFF_FACTOR,
         MAX_RECONNECT_DELAY,
       );
+      if (this.userReconnects >= 3 && this.onRefreshApiCredsCallback) {
+        try {
+          const freshCreds = await this.onRefreshApiCredsCallback();
+          if (freshCreds) {
+            this.apiCreds = freshCreds;
+            this.log("info", `User WS: Refreshed API credentials before reconnect`);
+          }
+        } catch (err: any) {
+          this.log("warn", `User WS: Failed to refresh API credentials: ${err.message}`);
+        }
+      }
       this._connectUser();
     }, delay);
   }

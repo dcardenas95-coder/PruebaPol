@@ -247,6 +247,10 @@ export class StrategyEngine {
         const assetIds = this.getMarketAssetIds(config);
         polymarketWs.connectUser(assetIds, creds);
 
+        polymarketWs.onRefreshApiCreds(async () => {
+          return liveTradingClient.getApiCreds();
+        });
+
         polymarketWs.onFill(async (fillData) => {
           try {
             await this.orderManager.handleWsFill(fillData);
@@ -716,6 +720,13 @@ export class StrategyEngine {
       return;
     }
 
+    if (!config.isPaperTrading) {
+      const wsHealth = polymarketWs.getHealth();
+      if (!wsHealth.marketConnected) {
+        return;
+      }
+    }
+
     const activeOrders = await this.orderManager.getActiveOrders();
     const entryOrders = activeOrders.filter(o => o.side === "BUY");
     const tpOrders = activeOrders.filter(o => o.side === "SELL");
@@ -735,9 +746,18 @@ export class StrategyEngine {
         if (!balanceRateCheck.allowed) {
           return;
         }
-        const balance = await liveTradingClient.getBalanceAllowance(config.currentMarketId);
+        let usdcBalance = 0;
+        const collateral = await liveTradingClient.getCollateralBalance();
         apiRateLimiter.recordSuccess();
-        const usdcBalance = parseFloat(balance?.balance || "0");
+        if (collateral && parseFloat(collateral.balance) > 0) {
+          const raw = parseFloat(collateral.balance);
+          usdcBalance = raw > 1000 ? raw / 1e6 : raw;
+        } else {
+          const onChain = await liveTradingClient.getOnChainUsdcBalance();
+          if (onChain) {
+            usdcBalance = parseFloat(onChain.total);
+          }
+        }
         const orderCost = config.orderSize * data.bestBid;
         if (usdcBalance < orderCost) {
           await storage.createEvent({
@@ -1073,6 +1093,9 @@ export class StrategyEngine {
       const creds = liveTradingClient.getApiCreds();
       if (creds) {
         polymarketWs.connectUser(assetIds, creds);
+        polymarketWs.onRefreshApiCreds(async () => {
+          return liveTradingClient.getApiCreds();
+        });
         polymarketWs.onFill(async (fillData) => {
           try {
             await this.orderManager.handleWsFill(fillData);
