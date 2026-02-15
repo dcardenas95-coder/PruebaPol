@@ -644,10 +644,24 @@ export class LiveTradingClient {
       const highThreshold = BigNumber.from("1000000000000");
       const SAFE_GAS_LIMIT = 100000;
 
-      const createFreshContracts = async () => {
-        invalidateProviderCache();
+      const createFreshContracts = async (forceRefresh = false) => {
+        if (forceRefresh) {
+          invalidateProviderCache();
+        }
         const freshProvider = await getWorkingProvider();
-        await freshProvider.getBlockNumber();
+        try {
+          await freshProvider.getBlockNumber();
+        } catch (verifyErr: any) {
+          console.warn(`[LiveTrading] Provider verification failed, forcing rotation: ${verifyErr.message?.slice(0, 60)}`);
+          invalidateProviderCache();
+          const rotatedProvider = await getWorkingProvider();
+          const rotatedSigner = this.wallet!.connect(rotatedProvider);
+          return {
+            provider: rotatedProvider,
+            usdc: new Contract(USDC_E_ADDRESS, ERC20_ABI, rotatedSigner),
+            ctf: new Contract(CTF_ADDRESS, ERC1155_ABI, rotatedSigner),
+          };
+        }
         const freshSigner = this.wallet!.connect(freshProvider);
         return {
           provider: freshProvider,
@@ -656,9 +670,9 @@ export class LiveTradingClient {
         };
       };
 
-      let { provider: activeProvider, usdc, ctf } = await createFreshContracts();
+      let { provider: activeProvider, usdc, ctf } = await createFreshContracts(false);
 
-      console.log("[LiveTrading] Checking current approval status (serialized)...");
+      console.log("[LiveTrading] Checking current approval status (serialized, 2s between calls)...");
       const checkResults = await serialRpcCall<BigNumber | boolean>([
         () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
         () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
@@ -666,7 +680,7 @@ export class LiveTradingClient {
         () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
         () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
         () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
-      ], 1000);
+      ], 2000);
 
       const allowCtf = checkResults[0] as BigNumber;
       const allowNeg = checkResults[1] as BigNumber;
@@ -738,8 +752,8 @@ export class LiveTradingClient {
         return overrides;
       };
 
-      let gasOverrides = await buildGasOverrides(activeProvider, false);
-      console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}`);
+      let gasOverrides = await buildGasOverrides(activeProvider, true);
+      console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}, gasLimit=${gasOverrides.gasLimit}`);
 
       for (const step of approvalSteps) {
         if (step.alreadyApproved) {
@@ -748,48 +762,51 @@ export class LiveTradingClient {
           continue;
         }
 
-        for (let attempt = 0; attempt < 3; attempt++) {
+        let stepDone = false;
+        for (let attempt = 0; attempt < 3 && !stepDone; attempt++) {
           try {
-            console.log(`[LiveTrading] Approving ${step.name}${attempt > 0 ? ` (retry ${attempt})` : ""}...`);
-            await delay(attempt === 0 ? 2000 : 4000);
+            const waitMs = attempt === 0 ? 3000 : 6000;
+            console.log(`[LiveTrading] Approving ${step.name}${attempt > 0 ? ` (retry ${attempt})` : ""}, waiting ${waitMs}ms...`);
+            await delay(waitMs);
 
             if (attempt > 0) {
               console.log(`[LiveTrading] Refreshing RPC provider for retry...`);
-              const fresh = await createFreshContracts();
+              const fresh = await createFreshContracts(true);
               activeProvider = fresh.provider;
               usdc = fresh.usdc;
               ctf = fresh.ctf;
               gasOverrides = await buildGasOverrides(activeProvider, true);
-              console.log(`[LiveTrading] Retry with fresh provider + manual gasLimit=${SAFE_GAS_LIMIT}`);
+              console.log(`[LiveTrading] Retry with fresh provider + gasLimit=${SAFE_GAS_LIMIT}`);
             }
 
             const tx = await step.execute({ usdc, ctf }, gasOverrides);
             const receipt = await tx.wait();
             results.push({ step: step.name, txHash: receipt.transactionHash });
             console.log(`[LiveTrading] ${step.name} approved: ${receipt.transactionHash}`);
-            break;
+            stepDone = true;
           } catch (err: any) {
             const errMsg = err.message?.slice(0, 200) || "unknown error";
             const isNetworkErr = errMsg.includes("NETWORK_ERROR") || errMsg.includes("could not detect network") || errMsg.includes("noNetwork");
             const isGasEstimateErr = errMsg.includes("UNPREDICTABLE_GAS_LIMIT") || errMsg.includes("cannot estimate gas");
-            const isRetryable = isNetworkErr || isGasEstimateErr || isRetryableRpcError(err.message);
+            const isRateLimited = errMsg.includes("Too many requests") || errMsg.includes("rate limit") || errMsg.includes("429");
+            const isRetryable = isNetworkErr || isGasEstimateErr || isRateLimited || isRetryableRpcError(err.message);
 
-            console.error(`[LiveTrading] ${step.name} attempt ${attempt + 1} failed: ${errMsg.slice(0, 120)}`);
+            console.error(`[LiveTrading] ${step.name} attempt ${attempt + 1} failed: ${errMsg.slice(0, 150)}`);
 
-            if (attempt === 2) {
+            if (err.message?.includes("insufficient funds") || err.message?.includes("gas required exceeds")) {
+              results.push({ step: step.name, error: `Gas insuficiente: ${errMsg.slice(0, 100)}` });
+              stepDone = true;
+            } else if (attempt === 2) {
               results.push({ step: step.name, error: errMsg.slice(0, 150) });
               console.error(`[LiveTrading] ${step.name}: all 3 attempts failed, continuing with remaining steps`);
-            } else if (err.message?.includes("insufficient funds") || err.message?.includes("gas required exceeds")) {
-              results.push({ step: step.name, error: `Gas insuficiente: ${errMsg.slice(0, 100)}` });
-              break;
             } else if (isRetryable) {
               markRpcError();
-              const backoffMs = 5000 * (attempt + 1);
-              console.log(`[LiveTrading] Retryable error, waiting ${backoffMs}ms before retry with fresh provider...`);
+              const backoffMs = isRateLimited ? 15000 * (attempt + 1) : 8000 * (attempt + 1);
+              console.log(`[LiveTrading] ${isRateLimited ? "Rate limited" : "Retryable error"}, waiting ${backoffMs}ms before retry with fresh provider...`);
               await delay(backoffMs);
             } else {
               results.push({ step: step.name, error: errMsg.slice(0, 150) });
-              break;
+              stepDone = true;
             }
           }
         }
