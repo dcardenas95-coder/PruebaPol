@@ -14,6 +14,10 @@ import { dualEntry5mEngine } from "./strategies/dualEntry5m/engine";
 import { fetchCurrent5mMarket, type AssetType } from "./strategies/dualEntry5m/market-5m-discovery";
 import { runHealthCheck, startHealthMonitor } from "./bot/health-monitor";
 import { alertManager } from "./bot/alert-manager";
+import { binanceOracle } from "./bot/binance-oracle";
+import { stopLossManager } from "./bot/stop-loss-manager";
+import { progressiveSizer } from "./bot/progressive-sizer";
+import { marketRegimeFilter } from "./bot/market-regime-filter";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -605,6 +609,58 @@ export async function registerRoutes(
       const mdStatus = strategyEngine.getMarketDataStatus();
       const wsHealth = polymarketWs.getHealth();
       res.json({ ...mdStatus, ws: wsHealth });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/oracle/status", async (_req, res) => {
+    try {
+      res.json(binanceOracle.getStatus());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/oracle/connect", async (_req, res) => {
+    try {
+      binanceOracle.connect();
+      res.json({ success: true, message: "Oracle connecting to Binance BTC feed" });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post("/api/oracle/disconnect", async (_req, res) => {
+    try {
+      binanceOracle.disconnect();
+      res.json({ success: true, message: "Oracle disconnected" });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.get("/api/stop-loss/status", async (_req, res) => {
+    try {
+      res.json(stopLossManager.getStatus());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/progressive-sizer/status", async (_req, res) => {
+    try {
+      const status = await progressiveSizer.getStatus();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/market-regime/status", async (_req, res) => {
+    try {
+      const status = await strategyEngine.getStatus();
+      res.json(marketRegimeFilter.getStatus(status.marketData));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

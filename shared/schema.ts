@@ -356,6 +356,67 @@ export type DualEntry5mInfo = {
   scratchPrice: number;
 };
 
+export type OracleStatus = {
+  connected: boolean;
+  btcPrice: number;
+  openingPrice: number;
+  delta: number;
+  bufferSize: number;
+  volatility5m: number;
+  signal: {
+    direction: string;
+    strength: string;
+    confidence: number;
+    delta: number;
+    openingPrice: number;
+    currentPrice: number;
+    elapsedMs: number;
+    btcPrice: number;
+    volatility5m: number;
+  };
+};
+
+export type StopLossStatus = {
+  enabled: boolean;
+  config: {
+    enabled: boolean;
+    maxLossPercent: number;
+    trailingEnabled: boolean;
+    trailingPercent: number;
+    timeDecayEnabled: boolean;
+  };
+  trackedPositions: number;
+  highWaterMarks: Record<string, number>;
+};
+
+export type ProgressiveSizerStatus = {
+  enabled: boolean;
+  currentLevel: {
+    level: number;
+    name: string;
+    size: number;
+    reason: string;
+  };
+  stats: {
+    totalTrades: number;
+    winRate: number;
+    consecutiveWins: number;
+    consecutiveLosses: number;
+  };
+};
+
+export type MarketRegimeStatus = {
+  enabled: boolean;
+  currentRegime: {
+    regime: string;
+    tradeable: boolean;
+    reason?: string;
+    volatility: number;
+    depth: number;
+    spread: number;
+  } | null;
+};
+
 export type BotStatus = {
   config: BotConfig;
   marketData: MarketData | null;
@@ -373,4 +434,8 @@ export type BotStatus = {
   isLiquidating?: boolean;
   liquidationElapsedMs?: number;
   liquidationPatienceMs?: number;
+  oracle?: OracleStatus;
+  stopLoss?: StopLossStatus;
+  progressiveSizer?: ProgressiveSizerStatus;
+  marketRegime?: MarketRegimeStatus;
 };

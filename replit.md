@@ -105,6 +105,13 @@ pm2 restart polymaker
 - **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (ultimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posicion, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posicion esta en zona de riesgo ($0.30-$0.70). Evaluar despues de tener datos de win rate con la estrategia actual.
 
 ## Recent Changes
+- 2026-02-15: **Oracle-Informed Trading**: Binance BTC WebSocket oracle (`binance-oracle.ts`) with STRONG/WEAK signal detection ($30/$15 thresholds), integrated into Legacy FSM for directional entry decisions
+- 2026-02-15: **Progressive Position Sizing**: 3-level graduated sizing (L1: $1 for 1-20 trades, L2: $5 for 21-50 if WR>55%, L3: $10-20 for 51+ based on WR) via `progressive-sizer.ts`
+- 2026-02-15: **Stop-Loss Protection**: Per-trade 15% max loss, trailing stops from high-water mark, time-decay via `stop-loss-manager.ts`
+- 2026-02-15: **Market Regime Filter**: TRENDING/RANGING/VOLATILE/DEAD classification, blocks trading in unfavorable conditions via `market-regime-filter.ts`
+- 2026-02-15: **HEDGE_LOCK Refactor**: Eliminated cascade pattern (no more 12-order fractionation), single aggressive exit per position with re-pricing at 5s/10s intervals (max 3 attempts), final fire sale at $0.01/$0.99
+- 2026-02-15: **Dashboard UI**: Oracle panel (BTC price, delta, signal, confidence), Smart Trading Modules panel (Progressive Sizer, Stop-Loss, Market Regime status)
+- 2026-02-15: **API Routes**: `/api/oracle/status`, `/api/oracle/connect`, `/api/oracle/disconnect`, `/api/stop-loss/status`, `/api/progressive-sizer/status`, `/api/market-regime/status`
 - 2026-02-15: Enhanced approval process: POL balance check before approvals (blocks if <0.05 POL), fund location verification (warns if USDC.e in wrong wallet for sigType), individual retry per approval step (3 attempts each), POLYMARKET_SIG_TYPE env var for explicit sigType override
 - 2026-02-15: Added /api/trading/pre-checks endpoint: returns POL balance, gas sufficiency, USDC.e location, sigType info before approvals
 - 2026-02-15: Updated ApprovalCard UI: shows pre-check panel (POL balance, sigType, USDC.e locations) with warnings for insufficient gas or misplaced funds

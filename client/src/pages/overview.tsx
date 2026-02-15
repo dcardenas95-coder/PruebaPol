@@ -721,8 +721,231 @@ export default function Overview() {
         </CardContent>
       </Card>
 
+      {status && <OraclePanel status={status} />}
+
+      {status && <SmartModulesPanel status={status} />}
+
       <HealthAlertsPanel />
     </div>
+  );
+}
+
+function OraclePanel({ status }: { status: BotStatus }) {
+  const oracle = status.oracle;
+  const { toast } = useToast();
+
+  const connectMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/oracle/connect"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      toast({ title: "Oracle conectando a Binance BTC feed" });
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/oracle/disconnect"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      toast({ title: "Oracle desconectado" });
+    },
+  });
+
+  const signal = oracle?.signal;
+  const directionColor = signal?.direction === "UP" ? "text-emerald-500" : signal?.direction === "DOWN" ? "text-red-400" : "text-muted-foreground";
+  const strengthColor = signal?.strength === "STRONG" ? "bg-emerald-500/20 text-emerald-400" : signal?.strength === "WEAK" ? "bg-yellow-500/20 text-yellow-400" : "bg-muted text-muted-foreground";
+
+  return (
+    <Card data-testid="card-oracle-panel">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <TrendingUp className="w-4 h-4" />
+          Binance Oracle — BTC Price Feed
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={oracle?.connected ? "default" : "secondary"}
+            className="text-[10px]"
+            data-testid="badge-oracle-status"
+          >
+            {oracle?.connected ? (
+              <><Wifi className="w-3 h-3 mr-1" /> Live</>
+            ) : (
+              <><WifiOff className="w-3 h-3 mr-1" /> Off</>
+            )}
+          </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs px-2"
+            onClick={() => oracle?.connected ? disconnectMutation.mutate() : connectMutation.mutate()}
+            disabled={connectMutation.isPending || disconnectMutation.isPending}
+            data-testid="button-oracle-toggle"
+          >
+            {oracle?.connected ? "Disconnect" : "Connect"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        {oracle?.connected && signal ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="flex flex-col gap-1 p-2 rounded bg-muted/50">
+              <span className="text-[10px] text-muted-foreground">BTC Price</span>
+              <span className="text-sm font-mono font-bold" data-testid="text-oracle-btc-price">
+                ${oracle.btcPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1 p-2 rounded bg-muted/50">
+              <span className="text-[10px] text-muted-foreground">Window Delta</span>
+              <span className={`text-sm font-mono font-bold ${directionColor}`} data-testid="text-oracle-delta">
+                {signal.delta >= 0 ? "+" : ""}${signal.delta?.toFixed(2) ?? "—"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1 p-2 rounded bg-muted/50">
+              <span className="text-[10px] text-muted-foreground">Signal</span>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-sm font-bold ${directionColor}`} data-testid="text-oracle-direction">
+                  {signal.direction ?? "—"}
+                </span>
+                <Badge className={`text-[9px] ${strengthColor} border-0`} variant="outline" data-testid="badge-oracle-strength">
+                  {signal.strength ?? "—"}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 p-2 rounded bg-muted/50">
+              <span className="text-[10px] text-muted-foreground">Confidence</span>
+              <span className="text-sm font-mono font-bold" data-testid="text-oracle-confidence">
+                {signal.confidence != null ? `${(signal.confidence * 100).toFixed(0)}%` : "—"}
+              </span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                Vol 5m: ${oracle.volatility5m?.toFixed(2) ?? "—"}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground p-3 text-center">
+            Oracle desconectado. Conecta para señales de precio BTC en tiempo real de Binance.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SmartModulesPanel({ status }: { status: BotStatus }) {
+  const sizer = status.progressiveSizer;
+  const sl = status.stopLoss;
+  const regime = status.marketRegime;
+
+  return (
+    <Card data-testid="card-smart-modules">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <BarChart3 className="w-4 h-4" />
+          Smart Trading Modules
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="flex flex-col gap-2 p-3 rounded bg-muted/30 border border-muted" data-testid="module-progressive-sizer">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">Progressive Sizer</span>
+              <Badge variant={sizer?.enabled ? "default" : "secondary"} className="text-[9px]" data-testid="badge-sizer-status">
+                {sizer?.enabled ? "Active" : "Off"}
+              </Badge>
+            </div>
+            {sizer ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Level</span>
+                  <span className="text-xs font-mono font-bold" data-testid="text-sizer-level">
+                    L{sizer.currentLevel.level} — ${sizer.currentLevel.size}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Win Rate</span>
+                  <span className="text-xs font-mono" data-testid="text-sizer-winrate">
+                    {(sizer.stats.winRate * 100).toFixed(1)}% ({sizer.stats.totalTrades} trades)
+                  </span>
+                </div>
+                <span className="text-[9px] text-muted-foreground">{sizer.currentLevel.reason}</span>
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">No data</span>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2 p-3 rounded bg-muted/30 border border-muted" data-testid="module-stop-loss">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">Stop-Loss Protection</span>
+              <Badge variant={sl?.enabled ? "default" : "secondary"} className="text-[9px]" data-testid="badge-stoploss-status">
+                {sl?.enabled ? "Active" : "Off"}
+              </Badge>
+            </div>
+            {sl ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Max Loss</span>
+                  <span className="text-xs font-mono">{(sl.config.maxLossPercent * 100).toFixed(0)}%</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Trailing</span>
+                  <span className="text-xs font-mono">{sl.config.trailingEnabled ? `${(sl.config.trailingPercent * 100).toFixed(0)}%` : "Off"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Tracked</span>
+                  <span className="text-xs font-mono" data-testid="text-stoploss-tracked">{sl.trackedPositions} positions</span>
+                </div>
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">No data</span>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2 p-3 rounded bg-muted/30 border border-muted" data-testid="module-market-regime">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">Market Regime</span>
+              <Badge variant={regime?.enabled ? "default" : "secondary"} className="text-[9px]" data-testid="badge-regime-status">
+                {regime?.enabled ? "Active" : "Off"}
+              </Badge>
+            </div>
+            {regime?.currentRegime ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Regime</span>
+                  <Badge
+                    variant="outline"
+                    className={`text-[9px] border-0 ${
+                      regime.currentRegime.regime === "TRENDING" ? "bg-emerald-500/20 text-emerald-400"
+                      : regime.currentRegime.regime === "RANGING" ? "bg-blue-500/20 text-blue-400"
+                      : regime.currentRegime.regime === "VOLATILE" ? "bg-orange-500/20 text-orange-400"
+                      : "bg-muted text-muted-foreground"
+                    }`}
+                    data-testid="badge-regime-type"
+                  >
+                    {regime.currentRegime.regime}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Tradeable</span>
+                  <span className={`text-xs font-mono ${regime.currentRegime.tradeable ? "text-emerald-400" : "text-red-400"}`}>
+                    {regime.currentRegime.tradeable ? "Yes" : "No"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Spread</span>
+                  <span className="text-xs font-mono">{(regime.currentRegime.spread * 100).toFixed(1)}%</span>
+                </div>
+                {regime.currentRegime.reason && (
+                  <span className="text-[9px] text-muted-foreground">{regime.currentRegime.reason}</span>
+                )}
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">No market data</span>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
