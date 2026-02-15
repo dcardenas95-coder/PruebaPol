@@ -97,18 +97,25 @@ export class StrategyEngine {
     if (this.wsSetup) return;
 
     if (config.currentMarketId) {
-      polymarketWs.connectMarket([config.currentMarketId]);
+      const assetIds = this.getMarketAssetIds(config);
+      polymarketWs.connectMarket(assetIds);
       this.marketData.setWsDataSource(polymarketWs);
 
       polymarketWs.onMarketData((data) => {
         this.marketData.updateFromWs(data);
+      });
+
+      polymarketWs.onRefreshAssetIds(async () => {
+        const freshConfig = await storage.getBotConfig();
+        return freshConfig ? this.getMarketAssetIds(freshConfig) : assetIds;
       });
     }
 
     if (!config.isPaperTrading && liveTradingClient.isInitialized()) {
       const creds = liveTradingClient.getApiCreds();
       if (creds && config.currentMarketId) {
-        polymarketWs.connectUser([config.currentMarketId], creds);
+        const assetIds = this.getMarketAssetIds(config);
+        polymarketWs.connectUser(assetIds, creds);
 
         polymarketWs.onFill(async (fillData) => {
           try {
@@ -121,6 +128,21 @@ export class StrategyEngine {
     }
 
     this.wsSetup = true;
+  }
+
+  private getMarketAssetIds(config: BotConfig): string[] {
+    const ids: string[] = [];
+    if (config.currentMarketId) {
+      ids.push(config.currentMarketId);
+    }
+    const configAny = config as any;
+    if (configAny.marketTokenYes && configAny.marketTokenYes !== config.currentMarketId) {
+      ids.push(configAny.marketTokenYes);
+    }
+    if (configAny.marketTokenNo && configAny.marketTokenNo !== config.currentMarketId) {
+      ids.push(configAny.marketTokenNo);
+    }
+    return ids;
   }
 
   async stop(): Promise<void> {

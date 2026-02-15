@@ -56,10 +56,13 @@ export class PolymarketWebSocket {
   private userConnected = false;
   private shouldReconnectMarket = false;
   private shouldReconnectUser = false;
+  private invalidOpCountMarket = 0;
+  private invalidOpCountUser = 0;
 
   private onFillCallbacks: FillCallback[] = [];
   private onMarketDataCallbacks: MarketDataCallback[] = [];
   private lastMarketData: MarketData | null = null;
+  private onRefreshAssetIdsCallback: (() => Promise<string[]>) | null = null;
 
   onFill(cb: FillCallback) {
     this.onFillCallbacks.push(cb);
@@ -67,6 +70,10 @@ export class PolymarketWebSocket {
 
   onMarketData(cb: MarketDataCallback) {
     this.onMarketDataCallbacks.push(cb);
+  }
+
+  onRefreshAssetIds(cb: () => Promise<string[]>) {
+    this.onRefreshAssetIdsCallback = cb;
   }
 
   getHealth(): WsConnectionHealth {
@@ -102,6 +109,7 @@ export class PolymarketWebSocket {
     }
     this.subscribedMarketAssets = validIds;
     this.shouldReconnectMarket = true;
+    this.invalidOpCountMarket = 0;
     this._connectMarket();
   }
 
@@ -114,6 +122,7 @@ export class PolymarketWebSocket {
     this.subscribedUserAssets = validIds;
     this.apiCreds = creds;
     this.shouldReconnectUser = true;
+    this.invalidOpCountUser = 0;
     this._connectUser();
   }
 
@@ -171,11 +180,12 @@ export class PolymarketWebSocket {
         this.log("info", `Market WS: Connected (reconnects: ${this.marketReconnects})`);
 
         if (this.subscribedMarketAssets.length > 0) {
-          this.marketWs!.send(JSON.stringify({
+          const subscribeMsg = {
             assets_ids: this.subscribedMarketAssets,
             type: "market",
-          }));
-          this.log("info", `Market WS: Subscribed to ${this.subscribedMarketAssets.length} assets`);
+          };
+          this.marketWs!.send(JSON.stringify(subscribeMsg));
+          this.log("info", `Market WS: Subscribed to ${this.subscribedMarketAssets.length} assets: ${this.subscribedMarketAssets.map(id => id.slice(0, 12) + '...').join(', ')}`);
         }
 
         this.marketPingTimer = setInterval(() => {
@@ -190,11 +200,19 @@ export class PolymarketWebSocket {
         const rawStr = raw.toString();
 
         if (rawStr === "INVALID OPERATION" || rawStr.startsWith("INVALID")) {
-          this.log("warn", `Market WS: Received "${rawStr}" — likely invalid asset IDs. Stopping reconnection.`);
-          this.shouldReconnectMarket = false;
+          this.invalidOpCountMarket++;
+          this.log("warn", `Market WS: Received "${rawStr}" (attempt ${this.invalidOpCountMarket}/3). Reconnecting with backoff...`);
+          if (this.invalidOpCountMarket >= 3) {
+            this.log("warn", `Market WS: ${this.invalidOpCountMarket} consecutive INVALID OPERATION responses. Stopping reconnection.`);
+            this.shouldReconnectMarket = false;
+          }
           this._cleanupMarket();
+          if (this.shouldReconnectMarket) {
+            this._refreshAndReconnectMarket();
+          }
           return;
         }
+        this.invalidOpCountMarket = 0;
 
         try {
           const data = JSON.parse(rawStr);
@@ -257,11 +275,19 @@ export class PolymarketWebSocket {
         const rawStr = raw.toString();
 
         if (rawStr === "INVALID OPERATION" || rawStr.startsWith("INVALID")) {
-          this.log("warn", `User WS: Received "${rawStr}" — likely invalid asset IDs or auth. Stopping reconnection.`);
-          this.shouldReconnectUser = false;
+          this.invalidOpCountUser++;
+          this.log("warn", `User WS: Received "${rawStr}" (attempt ${this.invalidOpCountUser}/3). Reconnecting with backoff...`);
+          if (this.invalidOpCountUser >= 3) {
+            this.log("warn", `User WS: ${this.invalidOpCountUser} consecutive INVALID OPERATION responses. Stopping reconnection.`);
+            this.shouldReconnectUser = false;
+          }
           this._cleanupUser();
+          if (this.shouldReconnectUser) {
+            this._scheduleUserReconnect();
+          }
           return;
         }
+        this.invalidOpCountUser = 0;
 
         try {
           const data = JSON.parse(rawStr);
@@ -402,6 +428,22 @@ export class PolymarketWebSocket {
         } catch {}
       }
     }
+  }
+
+  private async _refreshAndReconnectMarket(): Promise<void> {
+    if (this.onRefreshAssetIdsCallback) {
+      try {
+        const freshIds = await this.onRefreshAssetIdsCallback();
+        const validIds = this.filterValidAssets(freshIds);
+        if (validIds.length > 0) {
+          this.subscribedMarketAssets = validIds;
+          this.log("info", `Market WS: Refreshed asset IDs: ${validIds.map(id => id.slice(0, 12) + '...').join(', ')}`);
+        }
+      } catch (err: any) {
+        this.log("warn", `Market WS: Failed to refresh asset IDs: ${err.message}`);
+      }
+    }
+    this._scheduleMarketReconnect();
   }
 
   private _scheduleMarketReconnect(): void {
