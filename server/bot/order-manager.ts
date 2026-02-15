@@ -145,6 +145,7 @@ export class OrderManager {
 
   async placeOrder(params: {
     marketId: string;
+    tokenId?: string;
     side: "BUY" | "SELL";
     price: number;
     size: number;
@@ -187,6 +188,7 @@ export class OrderManager {
 
   private async placeLiveOrder(params: {
     marketId: string;
+    tokenId?: string;
     side: "BUY" | "SELL";
     price: number;
     size: number;
@@ -218,8 +220,21 @@ export class OrderManager {
       isPaperTrade: false,
     });
 
+    const sdkTokenId = params.tokenId || params.marketId;
+
+    if (sdkTokenId.includes("sim") || sdkTokenId.length < 10) {
+      await storage.updateOrderStatus(order.id, "REJECTED");
+      await storage.createEvent({
+        type: "ORDER_REJECTED",
+        message: `[LIVE] Order rejected: Invalid token ID "${sdkTokenId}" — cannot place live orders with simulated tokens`,
+        data: { orderId: order.id, clientOrderId, tokenId: sdkTokenId },
+        level: "error",
+      });
+      throw new Error(`Order rejected: Invalid token ID "${sdkTokenId}" — select a real Polymarket market first`);
+    }
+
     const result = await liveTradingClient.placeOrder({
-      tokenId: params.marketId,
+      tokenId: sdkTokenId,
       side: params.side,
       price: params.price,
       size: params.size,

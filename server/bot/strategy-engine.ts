@@ -174,7 +174,7 @@ export class StrategyEngine {
         this.riskManager.resetDaily();
         this.lastDailyReset = today;
         await storage.createEvent({
-          type: "SYSTEM",
+          type: "INFO",
           message: "Daily risk counters reset",
           data: {},
           level: "info",
@@ -339,13 +339,25 @@ export class StrategyEngine {
     const bestSide = this.marketData.getBestSide();
     if (!bestSide) return;
 
-    const marketId = config.currentMarketId || "btc-5min-sim";
+    const tokenId = config.currentMarketId || "";
+    const marketId = config.currentMarketSlug || config.currentMarketId || "unknown";
     const negRisk = config.currentMarketNegRisk ?? false;
     const tickSize = config.currentMarketTickSize ?? "0.01";
+
+    if (!tokenId || tokenId.includes("sim")) {
+      await storage.createEvent({
+        type: "ERROR",
+        message: "Cannot place live orders: no real market token selected. Select a market in Configuration first.",
+        data: { marketId, tokenId },
+        level: "error",
+      });
+      return;
+    }
 
     if (bestSide === "BUY") {
       await this.orderManager.placeOrder({
         marketId,
+        tokenId,
         side: "BUY",
         price: data.bestBid,
         size: config.orderSize,
@@ -362,6 +374,7 @@ export class StrategyEngine {
       if (data.bestAsk >= exitPrice) {
         await this.orderManager.placeOrder({
           marketId,
+          tokenId,
           side: "SELL",
           price: exitPrice,
           size: Math.min(pos.size, config.orderSize),
@@ -405,8 +418,13 @@ export class StrategyEngine {
     const activeOrders = await this.orderManager.getActiveOrders();
     if (activeOrders.length >= 2) return;
 
+    const tokenId = config.currentMarketId || "";
     const negRisk = config.currentMarketNegRisk ?? false;
     const tickSize = config.currentMarketTickSize ?? "0.01";
+
+    if (!tokenId || tokenId.includes("sim")) {
+      return;
+    }
 
     for (const pos of positions) {
       if (pos.size > 0) {
@@ -416,6 +434,7 @@ export class StrategyEngine {
 
         await this.orderManager.placeOrder({
           marketId: pos.marketId,
+          tokenId,
           side: pos.side === "BUY" ? "SELL" : "BUY",
           price: Math.max(0.01, hedgePrice),
           size: pos.size,

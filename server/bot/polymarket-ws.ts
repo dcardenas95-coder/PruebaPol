@@ -6,9 +6,10 @@ const WS_MARKET_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 const WS_USER_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/user";
 
 const PING_INTERVAL = 30_000;
-const INITIAL_RECONNECT_DELAY = 1_000;
+const INITIAL_RECONNECT_DELAY = 2_000;
 const MAX_RECONNECT_DELAY = 60_000;
 const RECONNECT_BACKOFF_FACTOR = 2;
+const MAX_RECONNECT_ATTEMPTS = 15;
 
 export interface WsConnectionHealth {
   marketConnected: boolean;
@@ -85,14 +86,32 @@ export class PolymarketWebSocket {
     return this.lastMarketData;
   }
 
+  private isValidAssetId(id: string): boolean {
+    return id.length > 20 && !id.includes("sim") && !id.includes("test") && !id.includes("fake");
+  }
+
+  private filterValidAssets(ids: string[]): string[] {
+    return ids.filter(id => this.isValidAssetId(id));
+  }
+
   connectMarket(assetIds: string[]): void {
-    this.subscribedMarketAssets = assetIds;
+    const validIds = this.filterValidAssets(assetIds);
+    if (validIds.length === 0) {
+      this.log("warn", `Market WS: Skipping connection — no valid asset IDs (received: ${assetIds.join(", ")})`);
+      return;
+    }
+    this.subscribedMarketAssets = validIds;
     this.shouldReconnectMarket = true;
     this._connectMarket();
   }
 
   connectUser(assetIds: string[], creds: { apiKey: string; secret: string; passphrase: string }): void {
-    this.subscribedUserAssets = assetIds;
+    const validIds = this.filterValidAssets(assetIds);
+    if (validIds.length === 0) {
+      this.log("warn", `User WS: Skipping connection — no valid asset IDs (received: ${assetIds.join(", ")})`);
+      return;
+    }
+    this.subscribedUserAssets = validIds;
     this.apiCreds = creds;
     this.shouldReconnectUser = true;
     this._connectUser();
@@ -107,25 +126,35 @@ export class PolymarketWebSocket {
   }
 
   updateMarketSubscription(assetIds: string[]): void {
-    this.subscribedMarketAssets = assetIds;
+    const validIds = this.filterValidAssets(assetIds);
+    if (validIds.length === 0) {
+      this.log("warn", `Market WS: Skipping subscription update — no valid asset IDs`);
+      return;
+    }
+    this.subscribedMarketAssets = validIds;
     if (this.marketWs?.readyState === WebSocket.OPEN) {
       this.marketWs.send(JSON.stringify({
-        assets_ids: assetIds,
+        assets_ids: validIds,
         type: "market",
       }));
-      this.log("info", `Market WS: Updated subscription to ${assetIds.length} assets`);
+      this.log("info", `Market WS: Updated subscription to ${validIds.length} assets`);
     }
   }
 
   updateUserSubscription(assetIds: string[]): void {
-    this.subscribedUserAssets = assetIds;
+    const validIds = this.filterValidAssets(assetIds);
+    if (validIds.length === 0) {
+      this.log("warn", `User WS: Skipping subscription update — no valid asset IDs`);
+      return;
+    }
+    this.subscribedUserAssets = validIds;
     if (this.userWs?.readyState === WebSocket.OPEN && this.apiCreds) {
       this.userWs.send(JSON.stringify({
-        assets_ids: assetIds,
+        assets_ids: validIds,
         type: "user",
         auth: this.apiCreds,
       }));
-      this.log("info", `User WS: Updated subscription to ${assetIds.length} assets`);
+      this.log("info", `User WS: Updated subscription to ${validIds.length} assets`);
     }
   }
 
@@ -158,8 +187,17 @@ export class PolymarketWebSocket {
 
       this.marketWs.on("message", (raw: Buffer) => {
         this.marketLastMessage = Date.now();
+        const rawStr = raw.toString();
+
+        if (rawStr === "INVALID OPERATION" || rawStr.startsWith("INVALID")) {
+          this.log("warn", `Market WS: Received "${rawStr}" — likely invalid asset IDs. Stopping reconnection.`);
+          this.shouldReconnectMarket = false;
+          this._cleanupMarket();
+          return;
+        }
+
         try {
-          const data = JSON.parse(raw.toString());
+          const data = JSON.parse(rawStr);
           this._handleMarketMessage(data);
         } catch (e: any) {
           this.log("warn", `Market WS: Failed to parse message: ${e.message}`);
@@ -216,8 +254,17 @@ export class PolymarketWebSocket {
 
       this.userWs.on("message", (raw: Buffer) => {
         this.userLastMessage = Date.now();
+        const rawStr = raw.toString();
+
+        if (rawStr === "INVALID OPERATION" || rawStr.startsWith("INVALID")) {
+          this.log("warn", `User WS: Received "${rawStr}" — likely invalid asset IDs or auth. Stopping reconnection.`);
+          this.shouldReconnectUser = false;
+          this._cleanupUser();
+          return;
+        }
+
         try {
-          const data = JSON.parse(raw.toString());
+          const data = JSON.parse(rawStr);
           this._handleUserMessage(data);
         } catch (e: any) {
           this.log("warn", `User WS: Failed to parse message: ${e.message}`);
@@ -361,8 +408,14 @@ export class PolymarketWebSocket {
     if (!this.shouldReconnectMarket) return;
 
     this.marketReconnects++;
+    if (this.marketReconnects > MAX_RECONNECT_ATTEMPTS) {
+      this.log("error", `Market WS: Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping.`);
+      this.shouldReconnectMarket = false;
+      return;
+    }
+
     const delay = Math.min(this.marketReconnectDelay, MAX_RECONNECT_DELAY);
-    this.log("info", `Market WS: Reconnecting in ${delay}ms (attempt #${this.marketReconnects})`);
+    this.log("info", `Market WS: Reconnecting in ${delay}ms (attempt #${this.marketReconnects}/${MAX_RECONNECT_ATTEMPTS})`);
 
     this.marketReconnectTimer = setTimeout(() => {
       this.marketReconnectDelay = Math.min(
@@ -377,8 +430,14 @@ export class PolymarketWebSocket {
     if (!this.shouldReconnectUser) return;
 
     this.userReconnects++;
+    if (this.userReconnects > MAX_RECONNECT_ATTEMPTS) {
+      this.log("error", `User WS: Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping.`);
+      this.shouldReconnectUser = false;
+      return;
+    }
+
     const delay = Math.min(this.userReconnectDelay, MAX_RECONNECT_DELAY);
-    this.log("info", `User WS: Reconnecting in ${delay}ms (attempt #${this.userReconnects})`);
+    this.log("info", `User WS: Reconnecting in ${delay}ms (attempt #${this.userReconnects}/${MAX_RECONNECT_ATTEMPTS})`);
 
     this.userReconnectTimer = setTimeout(() => {
       this.userReconnectDelay = Math.min(
