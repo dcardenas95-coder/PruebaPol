@@ -26,62 +26,118 @@ const ERC1155_ABI = [
 const CLOB_HOST = "https://clob.polymarket.com";
 const CHAIN_ID = 137;
 
-const POLYGON_RPC_ENDPOINTS = [
-  "https://polygon-rpc.com",
-  "https://polygon.llamarpc.com",
+const DEFAULT_RPC_ENDPOINTS = [
+  "https://rpc.ankr.com/polygon",
+  "https://polygon.blockpi.network/v1/rpc/public",
   "https://polygon-bor-rpc.publicnode.com",
+  "https://polygon.llamarpc.com",
+  "https://polygon-rpc.com",
   "https://rpc-mainnet.matic.quiknode.pro",
 ];
 
+function getRpcEndpoints(): string[] {
+  const customRpc = process.env.POLYGON_RPC_URL;
+  if (customRpc) {
+    return [customRpc, ...DEFAULT_RPC_ENDPOINTS];
+  }
+  return [...DEFAULT_RPC_ENDPOINTS];
+}
+
 let currentRpcIndex = 0;
 let lastRpcError = 0;
+let cachedProvider: JsonRpcProvider | null = null;
+let cachedProviderTime = 0;
+const PROVIDER_CACHE_TTL = 60000;
 
-function getPolygonProvider(): JsonRpcProvider {
-  if (Date.now() - lastRpcError < 30000 && currentRpcIndex < POLYGON_RPC_ENDPOINTS.length - 1) {
-    currentRpcIndex++;
-    console.log(`[RPC] Rotating to endpoint ${currentRpcIndex}: ${POLYGON_RPC_ENDPOINTS[currentRpcIndex].slice(0, 40)}...`);
-  }
+function isRetryableRpcError(msg: string | undefined): boolean {
+  if (!msg) return false;
+  return msg.includes("Too many requests") ||
+    msg.includes("rate limit") ||
+    msg.includes("could not detect network") ||
+    msg.includes("NETWORK_ERROR") ||
+    msg.includes("SERVER_ERROR") ||
+    msg.includes("failed to meet quorum") ||
+    msg.includes("timeout") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ECONNREFUSED");
+}
+
+function createProvider(url: string): JsonRpcProvider {
   return new JsonRpcProvider({
-    url: POLYGON_RPC_ENDPOINTS[currentRpcIndex],
-    timeout: 15000,
+    url,
+    timeout: 12000,
   }, { chainId: CHAIN_ID, name: "matic" });
 }
 
+function isCacheValid(): boolean {
+  if (!cachedProvider) return false;
+  if ((Date.now() - cachedProviderTime) >= PROVIDER_CACHE_TTL) return false;
+  if (lastRpcError > cachedProviderTime) return false;
+  return true;
+}
+
+function getPolygonProvider(): JsonRpcProvider {
+  if (isCacheValid()) {
+    return cachedProvider!;
+  }
+  const endpoints = getRpcEndpoints();
+  if (Date.now() - lastRpcError < 30000 && currentRpcIndex < endpoints.length - 1) {
+    currentRpcIndex++;
+    console.log(`[RPC] Rotating to endpoint ${currentRpcIndex}: ${endpoints[currentRpcIndex].slice(0, 40)}...`);
+  }
+  const provider = createProvider(endpoints[currentRpcIndex]);
+  cachedProvider = provider;
+  cachedProviderTime = Date.now();
+  return provider;
+}
+
 async function getWorkingProvider(): Promise<JsonRpcProvider> {
-  for (let i = 0; i < POLYGON_RPC_ENDPOINTS.length; i++) {
-    const idx = (currentRpcIndex + i) % POLYGON_RPC_ENDPOINTS.length;
+  if (isCacheValid()) {
+    return cachedProvider!;
+  }
+  const endpoints = getRpcEndpoints();
+  for (let i = 0; i < endpoints.length; i++) {
+    const idx = (currentRpcIndex + i) % endpoints.length;
     try {
-      const provider = new JsonRpcProvider({
-        url: POLYGON_RPC_ENDPOINTS[idx],
-        timeout: 10000,
-      }, { chainId: CHAIN_ID, name: "matic" });
+      const provider = createProvider(endpoints[idx]);
       await provider.getBlockNumber();
       currentRpcIndex = idx;
+      cachedProvider = provider;
+      cachedProviderTime = Date.now();
+      console.log(`[RPC] Using endpoint ${idx}: ${endpoints[idx].slice(0, 40)}...`);
       return provider;
     } catch (err: any) {
-      console.log(`[RPC] Endpoint ${idx} (${POLYGON_RPC_ENDPOINTS[idx].slice(0, 30)}...) failed: ${err.message?.slice(0, 80)}`);
+      console.log(`[RPC] Endpoint ${idx} (${endpoints[idx].slice(0, 35)}...) failed: ${err.message?.slice(0, 60)}`);
+      await delay(500);
     }
   }
-  console.log(`[RPC] All endpoints failed, using default with static network`);
-  return new JsonRpcProvider({
-    url: POLYGON_RPC_ENDPOINTS[0],
-    timeout: 15000,
-  }, { chainId: CHAIN_ID, name: "matic" });
+  console.log(`[RPC] All ${endpoints.length} endpoints failed, using first with static network`);
+  const fallback = createProvider(endpoints[0]);
+  cachedProvider = fallback;
+  cachedProviderTime = Date.now();
+  return fallback;
+}
+
+function invalidateProviderCache(): void {
+  cachedProvider = null;
+  cachedProviderTime = 0;
 }
 
 function markRpcError(): void {
   lastRpcError = Date.now();
+  invalidateProviderCache();
 }
 
 function resetRpcIndex(): void {
   currentRpcIndex = 0;
+  invalidateProviderCache();
 }
 
 async function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 1500): Promise<T[]> {
+async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 2000): Promise<T[]> {
   const results: T[] = [];
   for (let i = 0; i < calls.length; i++) {
     if (i > 0) await delay(delayMs);
@@ -93,13 +149,11 @@ async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 1500): Pr
         break;
       } catch (err: any) {
         lastErr = err;
-        const isRateLimit = err.message?.includes("Too many requests") || err.message?.includes("rate limit");
-        const isNetworkError = err.message?.includes("could not detect network") || err.message?.includes("NETWORK_ERROR") || err.message?.includes("failed to meet quorum") || err.message?.includes("SERVER_ERROR");
-        if (isRateLimit || isNetworkError) {
+        if (isRetryableRpcError(err.message)) {
           markRpcError();
-          const waitTime = isNetworkError ? 2000 : 3000;
-          console.log(`[RPC] ${isNetworkError ? "Network error" : "Rate limited"} on call ${i} (attempt ${attempt + 1}), rotating and waiting ${waitTime}ms...`);
-          await delay(waitTime);
+          const backoffMs = 3000 * (attempt + 1);
+          console.log(`[RPC] Retryable error on call ${i} (attempt ${attempt + 1}), waiting ${backoffMs}ms: ${err.message?.slice(0, 60)}`);
+          await delay(backoffMs);
         } else {
           break;
         }
@@ -112,25 +166,24 @@ async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 1500): Pr
 
 async function withProviderRetry<T>(
   fn: (provider: JsonRpcProvider) => Promise<T>,
-  maxRetries = 3,
+  maxRetries = 4,
 ): Promise<T> {
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const provider = attempt === 0 ? getPolygonProvider() : await getWorkingProvider();
+      if (attempt === 0) {
+        return await fn(getPolygonProvider());
+      }
+      invalidateProviderCache();
+      const provider = await getWorkingProvider();
       return await fn(provider);
     } catch (err: any) {
       lastErr = err;
-      const isRetryable = err.message?.includes("Too many requests") ||
-        err.message?.includes("rate limit") ||
-        err.message?.includes("could not detect network") ||
-        err.message?.includes("NETWORK_ERROR") ||
-        err.message?.includes("SERVER_ERROR") ||
-        err.message?.includes("failed to meet quorum");
-      if (isRetryable && attempt < maxRetries - 1) {
+      if (isRetryableRpcError(err.message) && attempt < maxRetries - 1) {
         markRpcError();
-        console.log(`[RPC] Provider error (attempt ${attempt + 1}/${maxRetries}), rotating: ${err.message?.slice(0, 80)}`);
-        await delay(3000);
+        const backoffMs = 3000 * (attempt + 1);
+        console.log(`[RPC] Provider error (attempt ${attempt + 1}/${maxRetries}), rotating in ${backoffMs}ms: ${err.message?.slice(0, 80)}`);
+        await delay(backoffMs);
       } else {
         throw err;
       }
