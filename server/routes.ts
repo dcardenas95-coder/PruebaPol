@@ -8,6 +8,7 @@ import { liveTradingClient } from "./bot/live-trading-client";
 import { polymarketWs } from "./bot/polymarket-ws";
 import { apiRateLimiter } from "./bot/rate-limiter";
 import { dualEntryRouter } from "./strategies/dualEntry5m/routes";
+import { fetchCurrent5mMarket, type AssetType } from "./strategies/dualEntry5m/market-5m-discovery";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -238,6 +239,80 @@ export async function registerRoutes(
         };
       });
       res.json(formatted);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/markets/interval", async (req, res) => {
+    try {
+      const interval = (req.query.interval as string) || "5m";
+      const assets: AssetType[] = ["btc", "eth", "sol", "xrp", "doge", "bnb", "link"];
+      const GAMMA_BASE = "https://gamma-api.polymarket.com";
+
+      const now = Math.floor(Date.now() / 1000);
+      const intervalSeconds = interval === "15m" ? 900 : 300;
+      const suffix = interval === "15m" ? "15m" : "5m";
+
+      const currentTs = now - (now % intervalSeconds);
+      const nextTs = currentTs + intervalSeconds;
+
+      const results: any[] = [];
+      const fetchPromises = assets.map(async (asset) => {
+        const prefix = `${asset}-updown-${suffix}`;
+        for (const ts of [currentTs, nextTs]) {
+          const slug = `${prefix}-${ts}`;
+          try {
+            const response = await fetch(`${GAMMA_BASE}/events?slug=${slug}`);
+            if (!response.ok) continue;
+            const events = await response.json();
+            if (!events || events.length === 0) continue;
+            const event = events[0];
+            const market = event.markets?.[0];
+            if (!market) continue;
+
+            let tokenIds: string[] = [];
+            let outcomes: string[] = [];
+            let outcomePrices: string[] = [];
+            try { tokenIds = JSON.parse(market.clobTokenIds || "[]"); } catch {}
+            try { outcomes = JSON.parse(market.outcomes || "[]"); } catch {}
+            try { outcomePrices = JSON.parse(market.outcomePrices || "[]"); } catch {}
+
+            if (tokenIds.length < 2) continue;
+
+            const intervalEnd = ts + intervalSeconds;
+            const timeRemainingMs = Math.max(0, (intervalEnd - Math.floor(Date.now() / 1000)) * 1000);
+
+            results.push({
+              id: market.id || market.conditionId,
+              conditionId: market.conditionId,
+              question: market.question || event.title || "",
+              slug: event.slug,
+              tokenIds,
+              outcomes,
+              outcomePrices,
+              active: market.active !== false,
+              closed: market.closed === true,
+              endDate: market.endDate || "",
+              volume: market.volumeNum || 0,
+              volume24hr: market.volume24hr || 0,
+              liquidity: market.liquidityNum || 0,
+              negRisk: market.negRisk === true || market.negRisk === "true",
+              tickSize: market.orderPriceMinTickSize || 0.01,
+              minSize: market.orderMinSize || 0,
+              acceptingOrders: market.acceptingOrders !== false,
+              timeRemainingMs,
+              intervalType: suffix,
+              asset: asset.toUpperCase(),
+            });
+            return;
+          } catch {}
+        }
+      });
+
+      await Promise.all(fetchPromises);
+      results.sort((a, b) => (b.volume24hr || 0) - (a.volume24hr || 0));
+      res.json(results);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

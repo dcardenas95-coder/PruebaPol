@@ -51,10 +51,24 @@ interface PolyMarket {
   description?: string;
 }
 
+interface IntervalMarket extends PolyMarket {
+  timeRemainingMs?: number;
+  intervalType?: string;
+  asset?: string;
+}
+
+function formatTimeRemaining(ms: number): string {
+  if (ms <= 0) return "Expired";
+  const totalSec = Math.floor(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
 function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketId?: string | null; currentMarketSlug?: string | null }) {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchMode, setSearchMode] = useState<"btc" | "search">("btc");
+  const [searchMode, setSearchMode] = useState<"btc" | "search" | "5min" | "15min">("btc");
 
   const { data: btcMarkets, isLoading: btcLoading } = useQuery<PolyMarket[]>({
     queryKey: ["/api/markets/btc"],
@@ -68,6 +82,28 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
       return res.json();
     },
     enabled: false,
+  });
+
+  const { data: markets5m, isLoading: loading5m } = useQuery<IntervalMarket[]>({
+    queryKey: ["/api/markets/interval", "5m"],
+    queryFn: async () => {
+      const res = await fetch("/api/markets/interval?interval=5m");
+      if (!res.ok) throw new Error("Failed to fetch 5m markets");
+      return res.json();
+    },
+    enabled: searchMode === "5min",
+    refetchInterval: searchMode === "5min" ? 30000 : false,
+  });
+
+  const { data: markets15m, isLoading: loading15m } = useQuery<IntervalMarket[]>({
+    queryKey: ["/api/markets/interval", "15m"],
+    queryFn: async () => {
+      const res = await fetch("/api/markets/interval?interval=15m");
+      if (!res.ok) throw new Error("Failed to fetch 15m markets");
+      return res.json();
+    },
+    enabled: searchMode === "15min",
+    refetchInterval: searchMode === "15min" ? 30000 : false,
   });
 
   const selectMutation = useMutation({
@@ -103,8 +139,14 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
     });
   };
 
-  const markets = searchMode === "search" && searchResults ? searchResults : btcMarkets || [];
-  const loading = searchMode === "search" ? searchLoading : btcLoading;
+  const markets = searchMode === "5min" ? (markets5m || [])
+    : searchMode === "15min" ? (markets15m || [])
+    : searchMode === "search" && searchResults ? searchResults
+    : btcMarkets || [];
+  const loading = searchMode === "5min" ? loading5m
+    : searchMode === "15min" ? loading15m
+    : searchMode === "search" ? searchLoading
+    : btcLoading;
 
   return (
     <Card>
@@ -161,12 +203,33 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
           <Button onClick={handleSearch} variant="secondary" data-testid="button-search-markets">
             Search
           </Button>
+        </div>
+        <div className="flex gap-2">
           <Button
             onClick={() => { setSearchMode("btc"); setSearchQuery(""); }}
-            variant="outline"
+            variant={searchMode === "btc" ? "default" : "outline"}
+            size="sm"
             data-testid="button-btc-markets"
           >
             BTC
+          </Button>
+          <Button
+            onClick={() => { setSearchMode("5min"); setSearchQuery(""); }}
+            variant={searchMode === "5min" ? "default" : "outline"}
+            size="sm"
+            data-testid="button-5min-markets"
+          >
+            <Zap className="w-3 h-3 mr-1" />
+            5 min
+          </Button>
+          <Button
+            onClick={() => { setSearchMode("15min"); setSearchQuery(""); }}
+            variant={searchMode === "15min" ? "default" : "outline"}
+            size="sm"
+            data-testid="button-15min-markets"
+          >
+            <Zap className="w-3 h-3 mr-1" />
+            15 min
           </Button>
         </div>
 
@@ -181,16 +244,34 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
               No markets found. Try a different search.
             </div>
           )}
-          {!loading && markets.map((market) => (
+          {!loading && markets.map((market) => {
+            const im = market as IntervalMarket;
+            const isInterval = searchMode === "5min" || searchMode === "15min";
+            return (
             <div
-              key={market.id || market.conditionId}
+              key={market.id || market.conditionId || market.slug}
               className="border rounded-md p-3 space-y-2"
-              data-testid={`card-market-${market.id}`}
+              data-testid={`card-market-${market.id || market.slug}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium leading-snug">{market.question}</p>
-                  <div className="flex items-center gap-3 mt-1">
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    {isInterval && im.asset && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {im.asset}
+                      </Badge>
+                    )}
+                    {isInterval && im.timeRemainingMs != null && im.timeRemainingMs > 0 && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                        {formatTimeRemaining(im.timeRemainingMs)}
+                      </Badge>
+                    )}
+                    {isInterval && im.timeRemainingMs != null && im.timeRemainingMs <= 0 && (
+                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                        Expired
+                      </Badge>
+                    )}
                     <span className="text-xs text-muted-foreground">
                       Vol: ${(market.volume || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
@@ -224,7 +305,8 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </CardContent>
     </Card>
