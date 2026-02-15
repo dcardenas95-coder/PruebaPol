@@ -78,8 +78,8 @@ export class ProgressiveSizer {
 
       const winRate = totalTrades > 0 ? totalWins / totalTrades : 0;
 
-      const recentEvents = await storage.getEvents(50);
-      const fillEvents = recentEvents.filter(e => e.type === "ORDER_FILLED" || e.type === "PNL_UPDATE");
+      const recentEvents = await storage.getEvents(200);
+      const fillEvents = recentEvents.filter(e => e.type === "PNL_UPDATE");
       let consecutiveWins = 0;
       let consecutiveLosses = 0;
 

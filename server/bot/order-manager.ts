@@ -57,7 +57,7 @@ export class OrderManager {
         if (sizeMatched > dbOrder.filledSize) {
           const newFillSize = sizeMatched - dbOrder.filledSize;
           const fillPrice = dbOrder.price;
-          const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+          const fee = this.calculateFee(fillPrice, newFillSize);
 
           await storage.createFill({
             orderId: dbOrder.id,
@@ -82,7 +82,7 @@ export class OrderManager {
         if (sizeMatched > dbOrder.filledSize) {
           const newFillSize = sizeMatched - dbOrder.filledSize;
           const fillPrice = dbOrder.price;
-          const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+          const fee = this.calculateFee(fillPrice, newFillSize);
 
           await storage.createFill({
             orderId: dbOrder.id,
@@ -159,6 +159,9 @@ export class OrderManager {
     isPaperTrade: boolean;
     negRisk?: boolean;
     tickSize?: string;
+    isMakerOrder?: boolean;
+    oracleDirection?: string;
+    oracleConfidence?: number;
   }): Promise<Order> {
     const clientOrderId = `pm-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
@@ -180,6 +183,9 @@ export class OrderManager {
       filledSize: 0,
       status: "OPEN",
       isPaperTrade: true,
+      isMakerOrder: params.isMakerOrder ?? true,
+      oracleDirection: params.oracleDirection,
+      oracleConfidence: params.oracleConfidence,
     });
 
     await storage.createEvent({
@@ -202,6 +208,9 @@ export class OrderManager {
     isPaperTrade: boolean;
     negRisk?: boolean;
     tickSize?: string;
+    isMakerOrder?: boolean;
+    oracleDirection?: string;
+    oracleConfidence?: number;
   }, clientOrderId: string): Promise<Order> {
     if (!liveTradingClient.isInitialized()) {
       const initResult = await liveTradingClient.initialize();
@@ -225,6 +234,9 @@ export class OrderManager {
       filledSize: 0,
       status: "PENDING",
       isPaperTrade: false,
+      isMakerOrder: params.isMakerOrder ?? true,
+      oracleDirection: params.oracleDirection,
+      oracleConfidence: params.oracleConfidence,
     });
 
     const sdkTokenId = params.tokenId || params.marketId;
@@ -337,8 +349,8 @@ export class OrderManager {
     });
   }
 
-  async pollLiveOrderStatuses(): Promise<{ filled: boolean; pnl: number }[]> {
-    const results: { filled: boolean; pnl: number }[] = [];
+  async pollLiveOrderStatuses(): Promise<{ filled: boolean; pnl: number; fee?: number }[]> {
+    const results: { filled: boolean; pnl: number; fee?: number }[] = [];
 
     if (!liveTradingClient.isInitialized()) return results;
 
@@ -363,7 +375,7 @@ export class OrderManager {
         if (sizeMatched > order.filledSize) {
           const newFillSize = sizeMatched - order.filledSize;
           const fillPrice = order.price;
-          const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+          const fee = this.calculateFee(fillPrice, newFillSize);
 
           await storage.createFill({
             orderId: order.id,
@@ -385,7 +397,7 @@ export class OrderManager {
           });
 
           const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee);
-          results.push({ filled: true, pnl });
+          results.push({ filled: true, pnl, fee });
         }
       } else {
         const orderInfo = await liveTradingClient.getOrderStatus(order.exchangeOrderId);
@@ -395,7 +407,7 @@ export class OrderManager {
         if (sizeMatched > order.filledSize) {
           const newFillSize = sizeMatched - order.filledSize;
           const fillPrice = order.price;
-          const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+          const fee = this.calculateFee(fillPrice, newFillSize);
 
           await storage.createFill({
             orderId: order.id,
@@ -408,7 +420,7 @@ export class OrderManager {
           });
 
           const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee);
-          results.push({ filled: true, pnl });
+          results.push({ filled: true, pnl, fee });
         }
 
         const totalFilled = Math.max(sizeMatched, order.filledSize);
@@ -454,7 +466,7 @@ export class OrderManager {
     if (newFillSize <= 0) return;
 
     const fillPrice = fillData.price > 0 ? fillData.price : matchingOrder.price;
-    const fee = parseFloat((newFillSize * fillPrice * 0.001).toFixed(4));
+    const fee = this.calculateFee(fillPrice, newFillSize);
 
     await storage.createFill({
       orderId: matchingOrder.id,
@@ -508,9 +520,13 @@ export class OrderManager {
 
   private paperFillTicks: Map<string, number> = new Map();
   private readonly REQUIRED_CROSSING_TICKS = 2;
-  private readonly POLYMARKET_FEE_RATE = 0.001;
+  private calculateFee(price: number, size: number, isMaker: boolean = true): number {
+    if (isMaker) return 0;
+    const takerFeeRate = price * (1 - price) * 0.0222;
+    return parseFloat((size * price * takerFeeRate).toFixed(6));
+  }
 
-  async simulateFill(orderId: string, marketData?: { bestBid: number; bestAsk: number; bidDepth: number; askDepth: number }): Promise<{ filled: boolean; pnl: number }> {
+  async simulateFill(orderId: string, marketData?: { bestBid: number; bestAsk: number; bidDepth: number; askDepth: number }): Promise<{ filled: boolean; pnl: number; fee?: number }> {
     const order = await storage.getOrderById(orderId);
     if (!order || order.status === "FILLED" || order.status === "CANCELLED" || order.status === "REJECTED") {
       this.paperFillTicks.delete(orderId);
@@ -558,7 +574,7 @@ export class OrderManager {
       fillPrice = parseFloat(Math.max(order.price - slippage, marketData.bestBid).toFixed(4));
     }
 
-    const fee = parseFloat((fillSize * fillPrice * this.POLYMARKET_FEE_RATE).toFixed(4));
+    const fee = this.calculateFee(fillPrice, fillSize, false);
 
     await storage.createFill({
       orderId: order.id,
@@ -580,7 +596,7 @@ export class OrderManager {
     });
 
     const pnl = await this.updatePosition(order.marketId, order.side, fillSize, fillPrice, fee);
-    return { filled: true, pnl };
+    return { filled: true, pnl, fee };
   }
 
   private async updatePosition(marketId: string, side: string, fillSize: number, fillPrice: number, fee: number): Promise<number> {

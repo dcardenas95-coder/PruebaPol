@@ -640,6 +640,43 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/oracle/config", (_req, res) => {
+    res.json(binanceOracle.getConfig());
+  });
+
+  app.patch("/api/oracle/config", async (req, res) => {
+    const { strongThreshold, weakThreshold, minConfidence, enabled } = req.body;
+    binanceOracle.updateConfig({ strongThreshold, weakThreshold, minConfidence, enabled });
+    res.json({ success: true, config: binanceOracle.getConfig() });
+  });
+
+  app.get("/api/stoploss/config", (_req, res) => {
+    res.json(stopLossManager.getConfig());
+  });
+
+  app.patch("/api/stoploss/config", async (req, res) => {
+    stopLossManager.updateConfig(req.body);
+    res.json({ success: true, config: stopLossManager.getConfig() });
+  });
+
+  app.get("/api/regime/config", (_req, res) => {
+    res.json(marketRegimeFilter.getConfig());
+  });
+
+  app.patch("/api/regime/config", async (req, res) => {
+    marketRegimeFilter.updateConfig(req.body);
+    res.json({ success: true, config: marketRegimeFilter.getConfig() });
+  });
+
+  app.get("/api/sizer/config", (_req, res) => {
+    res.json(progressiveSizer.getConfig());
+  });
+
+  app.patch("/api/sizer/config", async (req, res) => {
+    progressiveSizer.updateConfig(req.body);
+    res.json({ success: true, config: progressiveSizer.getConfig() });
+  });
+
   app.get("/api/stop-loss/status", async (_req, res) => {
     try {
       res.json(stopLossManager.getStatus());

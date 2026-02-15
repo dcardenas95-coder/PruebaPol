@@ -89,12 +89,14 @@ export class StrategyEngine {
         (config as any).currentMarketSlug = market.slug;
         (config as any).currentMarketNegRisk = market.negRisk;
         (config as any).currentMarketTickSize = String(market.tickSize);
+        (config as any).currentMarketTokenDown = market.tokenDown;
 
         await storage.updateBotConfig({
           currentMarketId: market.tokenUp,
           currentMarketSlug: market.slug,
           currentMarketNegRisk: market.negRisk,
           currentMarketTickSize: String(market.tickSize),
+          currentMarketTokenDown: market.tokenDown,
         });
 
         this.marketData.setTokenId(market.tokenUp);
@@ -171,7 +173,7 @@ export class StrategyEngine {
     this.setupTakeProfitCallback(config);
     this.setupWebSocket(config);
 
-    this.interval = setInterval(() => this.tick(), 3000);
+    this.interval = setInterval(() => this.tick(), 2000);
   }
 
   private setupTakeProfitCallback(config: BotConfig): void {
@@ -187,7 +189,13 @@ export class StrategyEngine {
         const tickSize = freshConfig.currentMarketTickSize ?? "0.01";
         if (!tokenId) return;
 
-        const exitPrice = this.marketData.getExitPrice(avgEntryPrice, freshConfig.targetProfitMin, freshConfig.targetProfitMax);
+        let exitPrice = this.marketData.getExitPrice(avgEntryPrice, freshConfig.targetProfitMin, freshConfig.targetProfitMax);
+
+        const oracleSignal = binanceOracle.getSignal();
+        if (binanceOracle.isConnected() && oracleSignal.confidence > 0.7) {
+          const confidenceBonus = (oracleSignal.confidence - 0.5) * 0.02;
+          exitPrice = parseFloat((exitPrice + confidenceBonus).toFixed(4));
+        }
 
         const pos = await storage.getPositionByMarket(marketId, "BUY");
         if (!pos) return;
@@ -621,7 +629,7 @@ export class StrategyEngine {
           });
           if (result.filled && result.pnl !== 0) {
             this.riskManager.recordTradeResult(result.pnl);
-            await this.updateDailyPnl(result.pnl, result.pnl > 0);
+            await this.updateDailyPnl(result.pnl, result.pnl > 0, undefined, result.fee);
           }
         }
       } else {
@@ -629,7 +637,7 @@ export class StrategyEngine {
         for (const result of liveResults) {
           if (result.filled && result.pnl !== 0) {
             this.riskManager.recordTradeResult(result.pnl);
-            await this.updateDailyPnl(result.pnl, result.pnl > 0);
+            await this.updateDailyPnl(result.pnl, result.pnl > 0, undefined, result.fee);
           }
         }
       }
@@ -657,7 +665,19 @@ export class StrategyEngine {
       }
 
       if (newState === "MAKING" || newState === "UNWIND") {
-        const stopLossResults = await stopLossManager.checkAllPositions(data, remaining, this.MARKET_DURATION);
+        let stopLossData = data;
+        const allPositions = await storage.getPositions();
+        const tokenDown = (config as any).currentMarketTokenDown;
+        const hasTokenDownPositions = allPositions.some(p =>
+          p.size > 0 && tokenDown && p.marketId === tokenDown
+        );
+        if (hasTokenDownPositions) {
+          const tokenDownData = await this.getTokenDownData(config);
+          if (tokenDownData) {
+            stopLossData = tokenDownData;
+          }
+        }
+        const stopLossResults = await stopLossManager.checkAllPositions(stopLossData, remaining, this.MARKET_DURATION);
         for (const sl of stopLossResults) {
           await storage.createEvent({
             type: "RISK_ALERT",
@@ -755,6 +775,24 @@ export class StrategyEngine {
     }
   }
 
+  private async getTokenDownData(config: BotConfig): Promise<MarketData | null> {
+    const tokenDown = (config as any).currentMarketTokenDown;
+    if (!tokenDown || tokenDown.length < 10 || tokenDown.includes("sim")) return null;
+
+    try {
+      const { polymarketClient } = await import("./polymarket-client");
+      return await polymarketClient.fetchMarketData(tokenDown);
+    } catch (err: any) {
+      console.error(`[StrategyEngine] Failed to fetch tokenDown data: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Determines which token side to BUY based on Oracle signal.
+   * side is always "BUY" because in binary markets we buy tokens (YES or NO).
+   * tokenSide determines WHICH token to buy (YES = tokenUp, NO = tokenDown).
+   */
   private getOracleAlignedSide(signal: PriceSignal, config: BotConfig): { side: "BUY" | null; tokenSide: "YES" | "NO" | null; sizeMultiplier: number } {
     if (signal.strength === "NONE" || signal.direction === "NEUTRAL") {
       return { side: null, tokenSide: null, sizeMultiplier: 0 };
@@ -853,25 +891,49 @@ export class StrategyEngine {
       }
     }
 
-    const entryPrice = data.bestBid;
+    let effectiveTokenId = tokenId;
+    if (binanceOracle.isConnected() && oracleResult.tokenSide === "NO") {
+      const tokenDown = (config as any).currentMarketTokenDown;
+      if (tokenDown && tokenDown.length > 10 && !tokenDown.includes("sim")) {
+        effectiveTokenId = tokenDown;
+      }
+    }
+
+    let entryPrice = data.bestBid;
+    if (effectiveTokenId !== tokenId) {
+      const tokenDownData = await this.getTokenDownData(config);
+      if (tokenDownData) {
+        entryPrice = tokenDownData.bestBid;
+      } else {
+        await storage.createEvent({
+          type: "INFO",
+          message: `[ORACLE] Signal says NO but no tokenDown market data available — skipping`,
+          data: { signal: oracleSignal.direction },
+          level: "warn",
+        });
+        return;
+      }
+    }
 
     try {
       await this.orderManager.placeOrder({
         marketId,
-        tokenId,
+        tokenId: effectiveTokenId,
         side: "BUY",
         price: entryPrice,
         size: effectiveSize,
         isPaperTrade: config.isPaperTrading,
         negRisk,
         tickSize,
+        oracleDirection: oracleSignal.direction,
+        oracleConfidence: oracleSignal.confidence,
       });
 
       if (binanceOracle.isConnected()) {
         await storage.createEvent({
           type: "INFO",
-          message: `[ORACLE] Entry: ${oracleResult.tokenSide} side, signal=${oracleSignal.direction}/${oracleSignal.strength} conf=${(oracleSignal.confidence * 100).toFixed(0)}% delta=$${oracleSignal.delta.toFixed(2)} | size=$${effectiveSize} (sizer L${sizerLevel.level} × ${oracleResult.sizeMultiplier}x) | regime=${regimeResult.regime}`,
-          data: { oracle: oracleSignal, sizer: sizerLevel, regime: regimeResult.regime, effectiveSize },
+          message: `[ORACLE] Entry: ${oracleResult.tokenSide} side, signal=${oracleSignal.direction}/${oracleSignal.strength} conf=${(oracleSignal.confidence * 100).toFixed(0)}% delta=$${oracleSignal.delta.toFixed(2)} | size=$${effectiveSize} (sizer L${sizerLevel.level} × ${oracleResult.sizeMultiplier}x) | regime=${regimeResult.regime} | token=${effectiveTokenId === tokenId ? "UP" : "DOWN"}`,
+          data: { oracle: oracleSignal, sizer: sizerLevel, regime: regimeResult.regime, effectiveSize, tokenSide: oracleResult.tokenSide, effectiveTokenId },
           level: "info",
         });
       }
@@ -982,7 +1044,7 @@ export class StrategyEngine {
           tokenId,
           side: pos.side === "BUY" ? "SELL" : "BUY",
           price: Math.max(0.01, exitPrice),
-          size: parseFloat((pos.size * 0.5).toFixed(2)),
+          size: parseFloat(pos.size.toFixed(2)),
           isPaperTrade: config.isPaperTrading,
           negRisk,
           tickSize,
@@ -1047,6 +1109,7 @@ export class StrategyEngine {
         isPaperTrade: config.isPaperTrading,
         negRisk,
         tickSize,
+        isMakerOrder: false,
       });
 
       if (urgency !== "CRITICAL") {
@@ -1064,6 +1127,7 @@ export class StrategyEngine {
               marketId: pos.marketId, tokenId, side: exitSide,
               price: newPrice, size: still.size,
               isPaperTrade: config.isPaperTrading, negRisk, tickSize,
+              isMakerOrder: false,
             });
             await storage.createEvent({
               type: "INFO",
@@ -1085,6 +1149,7 @@ export class StrategyEngine {
               marketId: pos.marketId, tokenId, side: exitSide,
               price: firePrice, size: still.size,
               isPaperTrade: config.isPaperTrading, negRisk, tickSize,
+              isMakerOrder: false,
             });
             await storage.createEvent({
               type: "INFO",
@@ -1195,6 +1260,7 @@ export class StrategyEngine {
       currentMarketSlug: market.slug,
       currentMarketNegRisk: market.negRisk,
       currentMarketTickSize: String(market.tickSize),
+      currentMarketTokenDown: market.tokenDown,
       currentState: "MAKING",
     });
 
@@ -1258,7 +1324,7 @@ export class StrategyEngine {
     this.wsSetup = true;
   }
 
-  private async updateDailyPnl(pnl: number, isWin: boolean): Promise<void> {
+  private async updateDailyPnl(pnl: number, isWin: boolean, tradeValue?: number, fee?: number): Promise<void> {
     const today = format(new Date(), "yyyy-MM-dd");
     const existing = await storage.getPnlByDate(today);
 
@@ -1271,8 +1337,8 @@ export class StrategyEngine {
         tradesCount: existing.tradesCount + 1,
         winCount: existing.winCount + (isWin ? 1 : 0),
         lossCount: existing.lossCount + (isWin ? 0 : 1),
-        volume: parseFloat((existing.volume + Math.abs(pnl)).toFixed(4)),
-        fees: existing.fees,
+        volume: parseFloat((existing.volume + (tradeValue || Math.abs(pnl))).toFixed(4)),
+        fees: parseFloat((existing.fees + (fee || 0)).toFixed(4)),
       });
     } else {
       await storage.upsertPnlRecord({
@@ -1283,8 +1349,8 @@ export class StrategyEngine {
         tradesCount: 1,
         winCount: isWin ? 1 : 0,
         lossCount: isWin ? 0 : 1,
-        volume: Math.abs(pnl),
-        fees: 0,
+        volume: tradeValue || Math.abs(pnl),
+        fees: fee || 0,
       });
     }
   }
@@ -1346,6 +1412,7 @@ export class StrategyEngine {
         currentMarketSlug: null,
         currentMarketNegRisk: false,
         currentMarketTickSize: "0.01",
+        currentMarketTokenDown: null,
         autoRotate: false,
         autoRotateAsset: "btc",
         autoRotateInterval: "5m",
@@ -1365,6 +1432,7 @@ export class StrategyEngine {
       isLiquidating: this.isLiquidating,
       liquidationElapsedMs: this.isLiquidating ? Date.now() - this.liquidatingStartTime : undefined,
       liquidationPatienceMs: this.isLiquidating ? this.LIQUIDATION_PATIENCE_MS : undefined,
+      cycleCount: this.cycleCount,
       oracle: binanceOracle.getStatus(),
       stopLoss: stopLossManager.getStatus(),
       progressiveSizer: sizerStatus,

@@ -43,7 +43,7 @@ export class BinanceOracle {
   private lastLogTime = 0;
   private readonly BUFFER_MAX_SIZE = 3000;
   private readonly RECONNECT_BASE_MS = 2000;
-  private readonly RECONNECT_MAX_MS = 30000;
+  private readonly RECONNECT_MAX_MS = 10000;
 
   getConfig(): OracleConfig {
     return { ...this.config };
@@ -126,10 +126,25 @@ export class BinanceOracle {
   }
 
   markWindowStart(): void {
-    if (this.currentPrice > 0) {
+    const nowMs = Date.now();
+    const nowSec = Math.floor(nowMs / 1000);
+    const intervalSec = 300;
+    const boundaryTimestamp = nowSec - (nowSec % intervalSec);
+    const boundaryMs = boundaryTimestamp * 1000;
+
+    const nearBoundary = this.priceBuffer.filter(
+      p => Math.abs(p.ts - boundaryMs) < 5000
+    );
+
+    if (nearBoundary.length > 0) {
+      nearBoundary.sort((a, b) => Math.abs(a.ts - boundaryMs) - Math.abs(b.ts - boundaryMs));
+      this.openingPrice = nearBoundary[0].price;
+      this.windowStartTime = boundaryMs;
+      console.log(`[BinanceOracle] Window start aligned to boundary: opening=$${this.openingPrice.toFixed(2)} (from buffer, ${Math.abs(nearBoundary[0].ts - boundaryMs)}ms from boundary)`);
+    } else if (this.currentPrice > 0) {
       this.openingPrice = this.currentPrice;
-      this.windowStartTime = Date.now();
-      console.log(`[BinanceOracle] Window start marked: opening=$${this.openingPrice.toFixed(2)}`);
+      this.windowStartTime = nowMs;
+      console.log(`[BinanceOracle] Window start marked (no boundary data): opening=$${this.openingPrice.toFixed(2)}`);
     }
   }
 
@@ -220,6 +235,20 @@ export class BinanceOracle {
     return parseFloat(Math.sqrt(variance).toFixed(4));
   }
 
+  getRangeVolatility(windowMinutes: number): number {
+    const now = Date.now();
+    const cutoff = now - windowMinutes * 60 * 1000;
+    const prices = this.priceBuffer.filter(p => p.ts >= cutoff).map(p => p.price);
+
+    if (prices.length < 3) return 0;
+
+    const max = Math.max(...prices);
+    const min = Math.min(...prices);
+    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+
+    return parseFloat(((max - min) / avg * 100).toFixed(4));
+  }
+
   getCurrentPrice(): number {
     return this.currentPrice;
   }
@@ -255,3 +284,10 @@ export class BinanceOracle {
 }
 
 export const binanceOracle = new BinanceOracle();
+
+setTimeout(() => {
+  if (!binanceOracle.isConnected()) {
+    binanceOracle.connect();
+    console.log("[BinanceOracle] Auto-connected on module load");
+  }
+}, 2000);

@@ -3,6 +3,7 @@ import { polymarketWs, type WsConnectionHealth } from "./polymarket-ws";
 import { liveTradingClient } from "./live-trading-client";
 import { apiRateLimiter } from "./rate-limiter";
 import { alertManager, type AlertLevel } from "./alert-manager";
+import { binanceOracle } from "./binance-oracle";
 import { storage } from "../storage";
 
 export interface HealthCheckResult {
@@ -15,6 +16,7 @@ export interface HealthCheckResult {
     websocket: { status: "ok" | "degraded" | "error"; market: boolean; user: boolean; lastMessageAge: number | null };
     database: { status: "ok" | "error"; latencyMs: number | null; error?: string };
     rateLimiter: { status: "ok" | "warning"; circuitOpen: boolean; requestsLastMinute: number };
+    oracle: { status: "ok" | "disconnected"; connected: boolean; btcPrice: number | null };
   };
   botState: {
     isActive: boolean;
@@ -124,11 +126,15 @@ export async function runHealthCheck(): Promise<HealthCheckResult> {
   if (criticalFailures >= 2) overall = "unhealthy";
   else if (criticalFailures >= 1 || warnings >= 1) overall = "degraded";
 
+  const oracleConnected = binanceOracle.isConnected();
+  const oracleStatus = oracleConnected ? "ok" as const : "disconnected" as const;
+  const oraclePrice = oracleConnected ? binanceOracle.getStatus().btcPrice : null;
+
   const result: HealthCheckResult = {
     overall,
     timestamp: new Date().toISOString(),
     uptime: Date.now() - startTime,
-    checks: { rpc, clobApi, websocket: ws, database: db, rateLimiter: rl },
+    checks: { rpc, clobApi, websocket: ws, database: db, rateLimiter: rl, oracle: { status: oracleStatus, connected: oracleConnected, btcPrice: oraclePrice } },
     botState: {
       isActive: config?.isActive ?? false,
       isPaperTrading: config?.isPaperTrading ?? true,

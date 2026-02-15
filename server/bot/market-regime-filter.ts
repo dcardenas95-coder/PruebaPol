@@ -22,10 +22,10 @@ export interface RegimeConfig {
 
 const DEFAULT_CONFIG: RegimeConfig = {
   enabled: true,
-  minDepth: 50,
-  maxVolatility: 0.5,
-  minVolatility: 0.1,
-  maxSpread: 0.15,
+  minDepth: 30,
+  maxVolatility: 0.8,
+  minVolatility: 0.01,
+  maxSpread: 0.20,
 };
 
 export class MarketRegimeFilter {
@@ -94,8 +94,8 @@ export class MarketRegimeFilter {
     if (vol <= this.config.minVolatility) {
       return {
         regime: "RANGING",
-        tradeable: false,
-        reason: `Market flat: volatility ${vol.toFixed(3)}% < ${this.config.minVolatility}% minimum`,
+        tradeable: true,
+        reason: `Low volatility ${vol.toFixed(3)}% — Oracle-dependent`,
         volatility: vol,
         depth,
         spread,

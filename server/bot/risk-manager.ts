@@ -12,8 +12,50 @@ export class RiskManager {
   private dailyPnl = 0;
   private lastProximityAlert = 0;
   private readonly ALERT_COOLDOWN = 60_000;
+  private initialized = false;
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    try {
+      const pnlRecords = await storage.getPnlRecords();
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+
+      this.dailyPnl = 0;
+      for (const rec of pnlRecords) {
+        const recDate = new Date(rec.createdAt);
+        if (recDate >= todayStart) {
+          this.dailyPnl += rec.realizedPnl;
+        }
+      }
+
+      this.consecutiveLosses = 0;
+      const sortedRecords = [...pnlRecords].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      for (const rec of sortedRecords) {
+        if (rec.realizedPnl < 0) {
+          this.consecutiveLosses++;
+        } else {
+          break;
+        }
+      }
+
+      this.initialized = true;
+      await storage.createEvent({
+        type: "INFO",
+        message: `Risk Manager restored: dailyPnl=$${this.dailyPnl.toFixed(4)}, consecutiveLosses=${this.consecutiveLosses}`,
+        data: { dailyPnl: this.dailyPnl, consecutiveLosses: this.consecutiveLosses },
+        level: "info",
+      });
+    } catch (err) {
+      this.initialized = true;
+    }
+  }
 
   async checkPreTrade(config: BotConfig, orderValue: number): Promise<RiskCheck> {
+    await this.initialize();
+
     if (config.killSwitchActive) {
       return { allowed: false, reason: "Kill switch is active" };
     }

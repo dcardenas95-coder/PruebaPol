@@ -5,6 +5,8 @@ import { liveTradingClient } from "../../bot/live-trading-client";
 import { polymarketClient } from "../../bot/polymarket-client";
 import { volatilityTracker } from "./volatility-tracker";
 import { fetchCurrentIntervalMarket, type AssetType, type IntervalType } from "./market-5m-discovery";
+import { binanceOracle } from "../../bot/binance-oracle";
+import { marketRegimeFilter } from "../../bot/market-regime-filter";
 import type { CycleState, CycleContext, CycleLogEntry, StrategyConfig, EngineStatus, MarketSlot } from "./types";
 
 const WINDOW_DURATION_5M_MS = 5 * 60 * 1000;
@@ -268,6 +270,13 @@ export class DualEntry5mEngine {
       );
       if (snapshot.priceCount >= 3 && !snapshot.withinRange) {
         this.log("VOL_FILTER", `Volatility ${snapshot.current.toFixed(3)} outside range [${snapshot.min}, ${snapshot.max}]. Skipping cycle.`);
+        return false;
+      }
+    }
+
+    if (binanceOracle.isConnected()) {
+      const signal = binanceOracle.getSignal();
+      if (signal.strength === "NONE") {
         return false;
       }
     }

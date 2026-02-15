@@ -40,10 +40,16 @@ export class StopLossManager {
     this.config = { ...this.config, ...partial };
   }
 
-  updateHighWaterMark(positionKey: string, currentPrice: number): void {
-    const existing = this.highWaterMarks.get(positionKey) || 0;
-    if (currentPrice > existing) {
-      this.highWaterMarks.set(positionKey, currentPrice);
+  updateHighWaterMark(positionKey: string, currentPrice: number, side: string = "BUY"): void {
+    const existing = this.highWaterMarks.get(positionKey) || (side === "BUY" ? 0 : Infinity);
+    if (side === "BUY") {
+      if (currentPrice > existing) {
+        this.highWaterMarks.set(positionKey, currentPrice);
+      }
+    } else {
+      if (currentPrice < existing) {
+        this.highWaterMarks.set(positionKey, currentPrice);
+      }
     }
   }
 
@@ -94,7 +100,7 @@ export class StopLossManager {
 
     if (!this.config.enabled) return baseResult;
 
-    this.updateHighWaterMark(posKey, currentPrice);
+    this.updateHighWaterMark(posKey, currentPrice, position.side);
 
     if (lossPct >= this.config.maxLossPercent) {
       return {

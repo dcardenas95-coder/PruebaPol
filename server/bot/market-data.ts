@@ -10,7 +10,7 @@ export class MarketDataModule {
   private readonly MAX_ERRORS_BEFORE_FALLBACK = 5;
   private wsSource: PolymarketWebSocket | null = null;
   private lastWsUpdate = 0;
-  private readonly WS_STALE_THRESHOLD = 15_000;
+  private readonly WS_STALE_THRESHOLD = 10_000;
   private restPollingTimer: ReturnType<typeof setInterval> | null = null;
   private restPollingActive = false;
   private readonly REST_POLL_INTERVAL = 3_000;
@@ -188,6 +188,15 @@ export class MarketDataModule {
 
   getExitPrice(entryPrice: number, profitMin: number, profitMax: number): number {
     const target = (profitMin + profitMax) / 2;
-    return parseFloat((entryPrice + target).toFixed(4));
+    const rawExit = entryPrice + target;
+    const clamped = Math.max(0.02, Math.min(0.99, rawExit));
+
+    if (this.lastData) {
+      const maxReasonableTP = this.lastData.bestAsk + 0.02;
+      const minTP = entryPrice + 0.01;
+      return parseFloat(Math.max(minTP, Math.min(clamped, maxReasonableTP)).toFixed(4));
+    }
+
+    return parseFloat(clamped.toFixed(4));
   }
 }
