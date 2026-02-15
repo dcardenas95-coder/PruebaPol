@@ -615,6 +615,7 @@ export default function Configuration() {
       </Card>
 
       <LiveTestCard config={config} />
+      <OptimizationPanel />
       <RateLimiterCard />
     </div>
   );
@@ -687,6 +688,176 @@ function LiveTestCard({ config }: { config?: BotConfig }) {
               <p className="text-xs text-muted-foreground mt-0.5">{testResult.message}</p>
             </div>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OptimizationPanel() {
+  const { data: analytics, isLoading } = useQuery<{
+    metrics: {
+      totalTrades: number;
+      totalWins: number;
+      totalLosses: number;
+      winRate: number;
+      totalPnl: number;
+      avgPnlPerTrade: number;
+      totalFees: number;
+      buyFillRate: number;
+      tpFillRate: number;
+      avgBuyPrice: number;
+      avgSellPrice: number;
+      avgSpreadCapture: number;
+      medianBuyPrice: number;
+      avgFillSize: number;
+      forcedExitRate: number;
+      hedgeLockExits: number;
+      totalBuyOrders: number;
+      totalSellOrders: number;
+      filledBuys: number;
+      filledSells: number;
+    };
+    suggestions: Array<{ param: string; current: string; suggested: string; reason: string }>;
+    currentParams: {
+      minSpread: number;
+      targetProfitMin: number;
+      targetProfitMax: number;
+      orderSize: number;
+    };
+  }>({
+    queryKey: ["/api/analytics/optimization"],
+    refetchInterval: 30000,
+  });
+
+  const m = analytics?.metrics;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Crosshair className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">Optimización de Parámetros</CardTitle>
+          {m && m.totalTrades > 0 && (
+            <Badge variant="secondary" className="ml-auto font-mono" data-testid="badge-total-trades">
+              {m.totalTrades} trades
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : !m || m.totalTrades === 0 ? (
+          <div className="text-center py-6 text-sm text-muted-foreground" data-testid="text-no-data">
+            Sin datos de trading todavía. Las métricas aparecerán cuando el bot complete trades.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Win Rate</p>
+                <p className={`text-lg font-mono font-bold ${m.winRate >= 50 ? "text-emerald-500" : "text-red-500"}`} data-testid="text-win-rate">
+                  {m.winRate.toFixed(1)}%
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">PnL Total</p>
+                <p className={`text-lg font-mono font-bold ${m.totalPnl >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid="text-total-pnl">
+                  ${m.totalPnl.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">PnL/Trade</p>
+                <p className={`text-lg font-mono font-bold ${m.avgPnlPerTrade >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid="text-avg-pnl">
+                  ${m.avgPnlPerTrade.toFixed(4)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Fees</p>
+                <p className="text-lg font-mono font-bold" data-testid="text-total-fees">
+                  ${m.totalFees.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">BUY Fill Rate</p>
+                <p className="text-lg font-mono font-bold" data-testid="text-buy-fill-rate">
+                  {m.buyFillRate.toFixed(1)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground">{m.filledBuys}/{m.totalBuyOrders} órdenes</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">TP Fill Rate</p>
+                <p className={`text-lg font-mono font-bold ${m.tpFillRate >= 50 ? "text-emerald-500" : "text-amber-500"}`} data-testid="text-tp-fill-rate">
+                  {m.tpFillRate.toFixed(1)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground">{m.filledSells}/{m.filledSells + (m.totalSellOrders - m.filledSells)} TP fills</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Spread Capturado</p>
+                <p className="text-lg font-mono font-bold" data-testid="text-spread-capture">
+                  ${m.avgSpreadCapture.toFixed(4)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">avg sell - avg buy</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Salidas Forzadas</p>
+                <p className={`text-lg font-mono font-bold ${m.forcedExitRate > 30 ? "text-amber-500" : "text-emerald-500"}`} data-testid="text-forced-exit-rate">
+                  {m.forcedExitRate.toFixed(1)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground">{m.hedgeLockExits} HEDGE_LOCK exits</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Precio Entry Prom.</p>
+                <p className="text-sm font-mono" data-testid="text-avg-buy-price">${m.avgBuyPrice.toFixed(4)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Precio Exit Prom.</p>
+                <p className="text-sm font-mono" data-testid="text-avg-sell-price">${m.avgSellPrice.toFixed(4)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Size Prom. Fill</p>
+                <p className="text-sm font-mono" data-testid="text-avg-fill-size">{m.avgFillSize.toFixed(2)}</p>
+              </div>
+            </div>
+
+            {analytics?.suggestions && analytics.suggestions.length > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Zap className="w-4 h-4 text-amber-500" />
+                    <p className="text-sm font-medium">Sugerencias de Optimización</p>
+                  </div>
+                  <div className="space-y-3">
+                    {analytics.suggestions.map((s, i) => (
+                      <div key={i} className="rounded-lg border p-3 space-y-1" data-testid={`suggestion-${i}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-muted-foreground">{s.param}</span>
+                          <div className="flex items-center gap-2 text-xs font-mono">
+                            <span className="text-red-400">{s.current}</span>
+                            <span className="text-muted-foreground">→</span>
+                            <span className="text-emerald-400">{s.suggested}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{s.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

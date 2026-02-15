@@ -726,6 +726,151 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/analytics/optimization", async (_req, res) => {
+    try {
+      const allOrders = await storage.getOrders();
+      const allFills = await storage.getFills();
+      const pnlRecords = await storage.getPnlRecords();
+      const config = await storage.getBotConfig();
+
+      const buyOrders = allOrders.filter(o => o.side === "BUY");
+      const sellOrders = allOrders.filter(o => o.side === "SELL");
+
+      const filledBuys = buyOrders.filter(o => o.status === "FILLED");
+      const filledSells = sellOrders.filter(o => o.status === "FILLED");
+      const cancelledSells = sellOrders.filter(o => o.status === "CANCELLED");
+      const totalTpAttempted = filledSells.length + cancelledSells.length;
+      const tpFillRate = totalTpAttempted > 0 ? (filledSells.length / totalTpAttempted) * 100 : 0;
+
+      const buyFillRate = buyOrders.length > 0
+        ? (filledBuys.length / buyOrders.length) * 100 : 0;
+
+      const buyFills = allFills.filter(f => f.side === "BUY");
+      const sellFills = allFills.filter(f => f.side === "SELL");
+
+      const avgBuyPrice = buyFills.length > 0
+        ? buyFills.reduce((s, f) => s + f.price, 0) / buyFills.length : 0;
+      const avgSellPrice = sellFills.length > 0
+        ? sellFills.reduce((s, f) => s + f.price, 0) / sellFills.length : 0;
+      const avgSpreadCapture = avgSellPrice > 0 && avgBuyPrice > 0
+        ? avgSellPrice - avgBuyPrice : 0;
+
+      const totalTrades = pnlRecords.reduce((s, r) => s + r.tradesCount, 0);
+      const totalWins = pnlRecords.reduce((s, r) => s + r.winCount, 0);
+      const totalLosses = pnlRecords.reduce((s, r) => s + r.lossCount, 0);
+      const winRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
+      const totalPnl = pnlRecords.reduce((s, r) => s + r.realizedPnl, 0);
+      const avgPnlPerTrade = totalTrades > 0 ? totalPnl / totalTrades : 0;
+
+      const avgWinAmount = totalWins > 0
+        ? pnlRecords.reduce((s, r) => s + (r.winCount > 0 ? r.realizedPnl : 0), 0) / totalWins : 0;
+      const totalFees = pnlRecords.reduce((s, r) => s + r.fees, 0);
+
+      const filledBuyPrices = buyFills.map(f => f.price).sort((a, b) => a - b);
+      const medianBuyPrice = filledBuyPrices.length > 0
+        ? filledBuyPrices[Math.floor(filledBuyPrices.length / 2)] : 0;
+
+      const filledBuySizes = buyFills.map(f => f.size);
+      const avgFillSize = filledBuySizes.length > 0
+        ? filledBuySizes.reduce((s, v) => s + v, 0) / filledBuySizes.length : 0;
+
+      const hedgeLockExits = allOrders.filter(o =>
+        o.side === "SELL" && o.status === "FILLED" && o.price < (avgBuyPrice - 0.005)
+      ).length;
+      const forcedExitRate = filledSells.length > 0
+        ? (hedgeLockExits / filledSells.length) * 100 : 0;
+
+      const currentTargetProfit = config
+        ? (config.targetProfitMin + config.targetProfitMax) / 2 : 0.04;
+      const currentMinSpread = config?.minSpread ?? 0.03;
+
+      const suggestions: Array<{ param: string; current: string; suggested: string; reason: string }> = [];
+
+      if (totalTrades >= 5) {
+        if (tpFillRate < 40 && currentTargetProfit > 0.02) {
+          const suggestedMin = Math.max(0.01, (config?.targetProfitMin ?? 0.03) - 0.01);
+          const suggestedMax = Math.max(0.02, (config?.targetProfitMax ?? 0.05) - 0.01);
+          suggestions.push({
+            param: "Target Profit",
+            current: `$${config?.targetProfitMin?.toFixed(2)} - $${config?.targetProfitMax?.toFixed(2)}`,
+            suggested: `$${suggestedMin.toFixed(2)} - $${suggestedMax.toFixed(2)}`,
+            reason: `Tasa de TP fill baja (${tpFillRate.toFixed(0)}%). Un target mas pequeno se llenaria mas rapido.`,
+          });
+        } else if (tpFillRate > 80 && winRate > 60) {
+          const suggestedMin = (config?.targetProfitMin ?? 0.03) + 0.01;
+          const suggestedMax = (config?.targetProfitMax ?? 0.05) + 0.01;
+          suggestions.push({
+            param: "Target Profit",
+            current: `$${config?.targetProfitMin?.toFixed(2)} - $${config?.targetProfitMax?.toFixed(2)}`,
+            suggested: `$${suggestedMin.toFixed(2)} - $${suggestedMax.toFixed(2)}`,
+            reason: `TP fill rate alta (${tpFillRate.toFixed(0)}%) con buen win rate. Podrías capturar más por trade.`,
+          });
+        }
+
+        if (buyFillRate < 30 && currentMinSpread > 0.01) {
+          suggestions.push({
+            param: "Min Spread",
+            current: `$${currentMinSpread.toFixed(2)}`,
+            suggested: `$${Math.max(0.01, currentMinSpread - 0.01).toFixed(2)}`,
+            reason: `Solo ${buyFillRate.toFixed(0)}% de órdenes BUY se llenan. Bajar el min spread permite entrar en más mercados.`,
+          });
+        }
+
+        if (forcedExitRate > 40) {
+          suggestions.push({
+            param: "Target Profit",
+            current: `$${config?.targetProfitMin?.toFixed(2)} - $${config?.targetProfitMax?.toFixed(2)}`,
+            suggested: `Reducir 30-50%`,
+            reason: `${forcedExitRate.toFixed(0)}% de salidas son forzadas (HEDGE_LOCK). TP más pequeño = más exits limpios antes del cierre.`,
+          });
+        }
+
+        if (avgSpreadCapture > 0 && avgSpreadCapture < currentTargetProfit * 0.5) {
+          suggestions.push({
+            param: "Target Profit",
+            current: `$${currentTargetProfit.toFixed(3)}`,
+            suggested: `$${(avgSpreadCapture * 1.2).toFixed(3)}`,
+            reason: `Spread promedio capturado ($${avgSpreadCapture.toFixed(3)}) es mucho menor que el target. Alinear con realidad del mercado.`,
+          });
+        }
+      }
+
+      res.json({
+        metrics: {
+          totalTrades,
+          totalWins,
+          totalLosses,
+          winRate: parseFloat(winRate.toFixed(1)),
+          totalPnl: parseFloat(totalPnl.toFixed(4)),
+          avgPnlPerTrade: parseFloat(avgPnlPerTrade.toFixed(4)),
+          totalFees: parseFloat(totalFees.toFixed(4)),
+          buyFillRate: parseFloat(buyFillRate.toFixed(1)),
+          tpFillRate: parseFloat(tpFillRate.toFixed(1)),
+          avgBuyPrice: parseFloat(avgBuyPrice.toFixed(4)),
+          avgSellPrice: parseFloat(avgSellPrice.toFixed(4)),
+          avgSpreadCapture: parseFloat(avgSpreadCapture.toFixed(4)),
+          medianBuyPrice: parseFloat(medianBuyPrice.toFixed(4)),
+          avgFillSize: parseFloat(avgFillSize.toFixed(2)),
+          forcedExitRate: parseFloat(forcedExitRate.toFixed(1)),
+          hedgeLockExits,
+          totalBuyOrders: buyOrders.length,
+          totalSellOrders: sellOrders.length,
+          filledBuys: filledBuys.length,
+          filledSells: filledSells.length,
+        },
+        suggestions,
+        currentParams: {
+          minSpread: config?.minSpread ?? 0.03,
+          targetProfitMin: config?.targetProfitMin ?? 0.03,
+          targetProfitMax: config?.targetProfitMax ?? 0.05,
+          orderSize: config?.orderSize ?? 10,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/trading/balance/:tokenId", async (req, res) => {
     try {
       const { tokenId } = req.params;
