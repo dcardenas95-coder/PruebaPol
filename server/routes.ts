@@ -204,12 +204,14 @@ export async function registerRoutes(
   app.get("/api/orders/export", async (_req, res) => {
     try {
       const allOrders = await storage.getOrders();
-      const headers = ["id", "clientOrderId", "side", "price", "size", "filledSize", "status", "isPaperTrade", "exchangeOrderId", "createdAt", "updatedAt"];
+      const headers = ["id", "clientOrderId", "marketId", "tokenId", "side", "price", "size", "filledSize", "status", "isPaperTrade", "exchangeOrderId", "createdAt", "updatedAt"];
       const csvRows = [headers.join(",")];
       for (const o of allOrders) {
         csvRows.push([
           o.id,
           o.clientOrderId,
+          o.marketId || "",
+          o.tokenId || "",
           o.side,
           o.price,
           o.size,
