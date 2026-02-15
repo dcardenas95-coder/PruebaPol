@@ -89,6 +89,10 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (últimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posición, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posición está en zona de riesgo ($0.30-$0.70). Evaluar después de tener datos de win rate con la estrategia actual.
 
 ## Recent Changes
+- 2026-02-15: Fixed static catch-all middleware: changed app.use to app.get in server/static.ts so POST/PUT/DELETE API requests return JSON instead of HTML in production
+- 2026-02-15: Enhanced WebSocket resilience: 100 max reconnect attempts with stable-connection counter reset (30s threshold), periodic asset ID refresh every 5th reconnect, never permanently stops reconnecting
+- 2026-02-15: Fixed Polygon gas price: approval transactions now fetch current fee data with minimum 30 gwei priority fee for Polygon network requirements
+- 2026-02-15: Improved frontend error handling: content-type validation before JSON parsing, Spanish error messages for gas/connection failures
 - 2026-02-15: Fixed RPC rate limiting: serialized blockchain calls with delays and retry, automatic RPC endpoint rotation on "Too many requests" errors, fallback to alternative Polygon RPC endpoints
 - 2026-02-15: Added all 6 required token approvals per official Polymarket gist: USDC→CTF Exchange, USDC→NegRiskExchange, USDC→NegRiskAdapter, CTF→CTFExchange, CTF→NegRiskExchange, CTF→NegRiskAdapter
 - 2026-02-15: Fixed signature type: CLOB client auto-reinitializes with detected sigType (0→2 for Gnosis Safe proxy wallets) ensuring correct order signing for live trading
