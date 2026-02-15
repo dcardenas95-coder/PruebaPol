@@ -522,19 +522,22 @@ export async function registerRoutes(
         liveTradingClient.getOnChainUsdcBalance(),
       ]);
       const sigInfo = liveTradingClient.getSignatureInfo();
-      const sdkBalance = collateral ? collateral.balance : "0";
+      const sdkBalanceRaw = collateral ? collateral.balance : "0";
+      const sdkBalance = parseFloat(sdkBalanceRaw) > 1000 ? (parseFloat(sdkBalanceRaw) / 1e6).toFixed(2) : sdkBalanceRaw;
       const onChainTotal = onChain ? onChain.total : null;
+      const sdkHasBalance = parseFloat(sdkBalance) > 0;
       res.json({
         initialized: true,
         walletAddress: liveTradingClient.getWalletAddress(),
-        usdc: onChainTotal || sdkBalance,
+        usdc: sdkHasBalance ? sdkBalance : (onChainTotal || sdkBalance),
         usdcSdk: sdkBalance,
         usdcOnChain: onChainTotal,
         usdcE: onChain?.usdcE || null,
         usdcNative: onChain?.usdcNative || null,
         allowance: collateral ? collateral.allowance : "0",
         signatureType: sigInfo.signatureType,
-        walletType: sigInfo.signatureType === 1 ? "proxy" : "EOA",
+        detectedSigType: sigInfo.detectedSigType,
+        walletType: sigInfo.detectedSigType === 2 ? "Gnosis Safe" : sigInfo.detectedSigType === 1 ? "Proxy" : "EOA",
         funderAddress: sigInfo.funderAddress,
       });
     } catch (error: any) {

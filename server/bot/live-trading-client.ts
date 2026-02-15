@@ -45,6 +45,7 @@ export class LiveTradingClient {
   private wallet: Wallet | null = null;
   private initialized = false;
   private initError: string | null = null;
+  private detectedSigType: number | null = null;
 
   async initialize(): Promise<{ success: boolean; error?: string }> {
     if (this.initialized) {
@@ -158,28 +159,51 @@ export class LiveTradingClient {
   }
 
   async getCollateralBalance(): Promise<BalanceInfo | null> {
-    if (!this.client || !this.initialized) return null;
-    try {
-      await this.client.updateBalanceAllowance({
-        asset_type: "COLLATERAL",
-      } as any);
-      const result = await this.client.getBalanceAllowance({
-        asset_type: "COLLATERAL",
-      } as any);
-      return {
-        balance: result?.balance ?? "0",
-        allowance: result?.allowance ?? "0",
-      };
-    } catch (error: any) {
-      console.error("[LiveTrading] Collateral balance check error:", error.message);
-      return null;
+    if (!this.client || !this.initialized || !this.wallet || !this.creds) return null;
+
+    const tryWithSigType = async (sigType: number): Promise<BalanceInfo | null> => {
+      try {
+        const funder = getFunderAddress();
+        const testClient = new ClobClient(
+          CLOB_HOST, CHAIN_ID, this.wallet!, this.creds!,
+          sigType, funder,
+        );
+        await testClient.updateBalanceAllowance({ asset_type: "COLLATERAL" } as any);
+        const result = await testClient.getBalanceAllowance({ asset_type: "COLLATERAL" } as any);
+        return {
+          balance: result?.balance ?? "0",
+          allowance: result?.allowance ?? "0",
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    if (this.detectedSigType !== null) {
+      const result = await tryWithSigType(this.detectedSigType);
+      if (result && parseFloat(result.balance) > 0) return result;
     }
+
+    for (const sigType of [0, 2, 1]) {
+      const result = await tryWithSigType(sigType);
+      if (result && parseFloat(result.balance) > 0) {
+        if (this.detectedSigType !== sigType) {
+          this.detectedSigType = sigType;
+          console.log(`[LiveTrading] Detected working signature type: ${sigType} (balance: ${result.balance})`);
+        }
+        return result;
+      }
+    }
+
+    const fallback = await tryWithSigType(getSignatureType());
+    return fallback || { balance: "0", allowance: "0" };
   }
 
-  getSignatureInfo(): { signatureType: number; funderAddress: string | null } {
+  getSignatureInfo(): { signatureType: number; funderAddress: string | null; detectedSigType: number | null } {
     return {
       signatureType: getSignatureType(),
       funderAddress: getFunderAddress() || null,
+      detectedSigType: this.detectedSigType,
     };
   }
 
