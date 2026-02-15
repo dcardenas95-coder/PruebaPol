@@ -2,8 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { strategyEngine } from "./bot/strategy-engine";
-import { updateBotConfigSchema } from "@shared/schema";
+import { updateBotConfigSchema, dualEntryConfig } from "@shared/schema";
 import type { DualEntry5mInfo, DualEntry5mCycleInfo } from "@shared/schema";
+import { db } from "./db";
 import { polymarketClient } from "./bot/polymarket-client";
 import { liveTradingClient } from "./bot/live-trading-client";
 import { polymarketWs } from "./bot/polymarket-ws";
@@ -61,7 +62,25 @@ export async function registerRoutes(
         scratchPrice: de5m.config?.scratchPrice ?? 0.49,
       };
 
-      res.json({ ...status, dualEntry5m: dualEntry5mInfo });
+      let marketData = status.marketData;
+      let isLiveData = status.isLiveData;
+      if (!marketData) {
+        let tokenYes = de5m.config?.marketTokenYes;
+        if (!tokenYes) {
+          try {
+            const [dbCfg] = await db.select().from(dualEntryConfig).limit(1);
+            tokenYes = dbCfg?.marketTokenYes ?? undefined;
+          } catch (_) {}
+        }
+        if (tokenYes) {
+          try {
+            marketData = await polymarketClient.fetchMarketData(tokenYes);
+            isLiveData = !!marketData;
+          } catch (_) {}
+        }
+      }
+
+      res.json({ ...status, marketData, isLiveData, dualEntry5m: dualEntry5mInfo });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
