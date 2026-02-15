@@ -13,7 +13,7 @@ echo "[1/4] Descargando cambios..."
 git pull origin main
 
 echo "[2/4] Instalando dependencias..."
-npm install --production
+npm install
 
 echo "[3/4] Compilando..."
 npm run build

@@ -1,5 +1,11 @@
 # PolyMaker - Asymmetric Market Making Bot
 
+## Deployment
+- **GitHub Repo**: https://github.com/dcardenas95-coder/PruebaPol (branch: main)
+- **Server**: DigitalOcean Toronto — root@138.197.139.58
+- **Server App Dir**: /home/polymaker/app
+- **Update server**: `bash /home/polymaker/app/server-update.sh` (or manually: git pull, npm install, npm run build, pm2 restart polymaker)
+
 ## Overview
 Professional asymmetric market making bot for Polymarket BTC binary markets. Connected to Polymarket's CLOB API for live orderbook data. Supports both paper trading (simulated fills with real prices) and live trading (real orders via @polymarket/clob-client SDK). Full admin dashboard for monitoring and control. WebSocket-based real-time data feeds with comprehensive safety controls.
 
