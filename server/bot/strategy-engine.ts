@@ -467,6 +467,7 @@ export class StrategyEngine {
     const activeOrders = await this.orderManager.getActiveOrders();
     if (activeOrders.length >= 2) return;
 
+    const tokenId = config.currentMarketId || "";
     const negRisk = config.currentMarketNegRisk ?? false;
     const tickSize = config.currentMarketTickSize ?? "0.01";
 
@@ -478,6 +479,7 @@ export class StrategyEngine {
 
         await this.orderManager.placeOrder({
           marketId: pos.marketId,
+          tokenId,
           side: pos.side === "BUY" ? "SELL" : "BUY",
           price: Math.max(0.01, exitPrice),
           size: parseFloat((pos.size * 0.5).toFixed(2)),
@@ -720,6 +722,20 @@ export class StrategyEngine {
       this.marketData.setTokenId(config.currentMarketId);
     }
 
+    let marketData = this.marketData.getLastData();
+    let isLiveData = this.marketData.isUsingLiveData();
+
+    if (!marketData && config?.currentMarketId) {
+      try {
+        const { polymarketClient } = await import("./polymarket-client");
+        const liveData = await polymarketClient.fetchMarketData(config.currentMarketId);
+        if (liveData) {
+          marketData = liveData;
+          isLiveData = true;
+        }
+      } catch (_) {}
+    }
+
     return {
       config: config || {
         id: "",
@@ -743,13 +759,13 @@ export class StrategyEngine {
         autoRotateInterval: "5m",
         updatedAt: new Date(),
       },
-      marketData: this.marketData.getLastData(),
+      marketData,
       activeOrders: activeOrders.length,
       openPositions: positions.length,
       dailyPnl: this.riskManager.getDailyPnl(),
       consecutiveLosses: this.riskManager.getConsecutiveLosses(),
       uptime: Date.now() - this.startTime,
-      isLiveData: this.marketData.isUsingLiveData(),
+      isLiveData,
       currentTokenId: this.marketData.getTokenId(),
       wsHealth: polymarketWs.getHealth(),
     };

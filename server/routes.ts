@@ -158,15 +158,9 @@ export async function registerRoutes(
       }
 
       if (shouldStart) {
-        const result = await dualEntry5mEngine.start();
-        if (!result.success) {
-          return res.status(400).json({ error: result.error || "Failed to start dual-entry 5m engine" });
-        }
-        await storage.updateBotConfig({ isActive: true, currentState: "RUNNING" });
+        await strategyEngine.start();
       } else if (shouldStop) {
-        await dualEntry5mEngine.stop();
-        try { await strategyEngine.stop(); } catch (_) {}
-        await storage.updateBotConfig({ isActive: false, currentState: "STOPPED" });
+        await strategyEngine.stop();
       }
 
       const config = await storage.getBotConfig();
@@ -182,10 +176,8 @@ export async function registerRoutes(
       if (config?.killSwitchActive) {
         await storage.updateBotConfig({ killSwitchActive: false });
       } else {
-        await dualEntry5mEngine.stop();
-        try { await strategyEngine.stop(); } catch (_) {}
-        await storage.updateBotConfig({ killSwitchActive: true, isActive: false, currentState: "STOPPED" });
-        await storage.createEvent({ type: "KILL_SWITCH", message: "Kill switch activated — dual-entry 5m engine stopped" });
+        await strategyEngine.killSwitch();
+        try { await dualEntry5mEngine.stop(); } catch (_) {}
       }
       const updated = await storage.getBotConfig();
       res.json(updated);

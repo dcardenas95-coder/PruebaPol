@@ -110,6 +110,8 @@ export class PolymarketWebSocket {
     this.subscribedMarketAssets = validIds;
     this.shouldReconnectMarket = true;
     this.invalidOpCountMarket = 0;
+    this.marketReconnects = 0;
+    this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
     this._connectMarket();
   }
 
@@ -123,6 +125,8 @@ export class PolymarketWebSocket {
     this.apiCreds = creds;
     this.shouldReconnectUser = true;
     this.invalidOpCountUser = 0;
+    this.userReconnects = 0;
+    this.userReconnectDelay = INITIAL_RECONNECT_DELAY;
     this._connectUser();
   }
 
@@ -131,6 +135,9 @@ export class PolymarketWebSocket {
     this.shouldReconnectUser = false;
     this._cleanupMarket();
     this._cleanupUser();
+    this.onFillCallbacks = [];
+    this.onMarketDataCallbacks = [];
+    this.onRefreshAssetIdsCallback = null;
     this.log("info", "All WebSocket connections closed");
   }
 
