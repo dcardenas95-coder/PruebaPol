@@ -634,6 +634,24 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/trading/pre-checks", async (_req, res) => {
+    try {
+      if (!liveTradingClient.isInitialized()) {
+        const initResult = await liveTradingClient.initialize();
+        if (!initResult.success) {
+          return res.status(400).json({ success: false, error: initResult.error });
+        }
+      }
+      const checks = await liveTradingClient.getPreApprovalChecks();
+      if (!checks) {
+        return res.status(400).json({ success: false, error: "Wallet not initialized" });
+      }
+      res.json({ success: true, ...checks });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.post("/api/trading/approve", async (_req, res) => {
     try {
       if (!liveTradingClient.isInitialized()) {

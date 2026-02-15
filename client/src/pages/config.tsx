@@ -643,12 +643,24 @@ function ApprovalCard() {
     refetchInterval: 30000,
   });
 
+  const { data: preChecks } = useQuery<{
+    success: boolean;
+    polBalance: string;
+    hasSufficientGas: boolean;
+    fundLocation: { correct: boolean; warning?: string; eoaUsdcE: string; proxyUsdcE?: string };
+    sigType: number;
+    walletAddress: string;
+  }>({
+    queryKey: ["/api/trading/pre-checks"],
+    refetchInterval: 60000,
+  });
+
   const approveMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/trading/approve");
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {
-        throw new Error("El servidor no respondió correctamente. Intenta recargar la página.");
+        throw new Error("El servidor no respondio correctamente. Intenta recargar la pagina.");
       }
       return res.json();
     },
@@ -657,20 +669,21 @@ function ApprovalCard() {
         toast({ title: "Aprobaciones completadas", description: `${data.results.filter((r: any) => !r.skipped).length} nuevas, ${data.results.filter((r: any) => r.skipped).length} ya aprobadas` });
       } else {
         let errMsg = data.error || "Error desconocido";
-        if (data.error?.includes("gas") || data.error?.includes("price")) {
-          errMsg = "Gas price insuficiente en Polygon. Intenta de nuevo en unos minutos.";
+        if (data.error?.includes("POL insuficiente") || data.error?.includes("gas")) {
+          errMsg = data.error;
         } else if (data.error?.includes("could not detect network") || data.error?.includes("NETWORK_ERROR")) {
-          errMsg = "No se pudo conectar a la red Polygon. Los servidores RPC están saturados. Intenta de nuevo en 30 segundos.";
+          errMsg = "No se pudo conectar a la red Polygon. Los servidores RPC estan saturados. Intenta de nuevo en 30 segundos.";
         } else if (data.error?.includes("Too many requests") || data.error?.includes("rate limit")) {
-          errMsg = "Límite de solicitudes RPC alcanzado. Espera 30 segundos e intenta de nuevo.";
+          errMsg = "Limite de solicitudes RPC alcanzado. Espera 30 segundos e intenta de nuevo.";
         }
-        toast({ title: "Error en aprobación", description: errMsg, variant: "destructive" });
+        toast({ title: "Error en aprobacion", description: errMsg, variant: "destructive" });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/trading/approval-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trading/pre-checks"] });
     },
     onError: (err: Error) => {
       const msg = err.message.includes("Unexpected token")
-        ? "Error de conexión con el servidor. Recarga la página e intenta de nuevo."
+        ? "Error de conexion con el servidor. Recarga la pagina e intenta de nuevo."
         : err.message;
       toast({ title: "Error", description: msg, variant: "destructive" });
     },
@@ -679,6 +692,12 @@ function ApprovalCard() {
   const StatusDot = ({ ok }: { ok: boolean }) => (
     <span className={`inline-block w-2 h-2 rounded-full ${ok ? "bg-emerald-500" : "bg-destructive"}`} />
   );
+
+  const sigTypeLabels: Record<number, string> = {
+    0: "EOA directo",
+    1: "Proxy (email/Magic)",
+    2: "Proxy (browser/Safe)",
+  };
 
   return (
     <Card>
@@ -695,8 +714,47 @@ function ApprovalCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Polymarket requiere aprobación de USDC y Conditional Tokens para operar. Necesitas MATIC para gas (~$0.05).
+          Polymarket requiere aprobacion de USDC.e y Conditional Tokens para operar. Necesitas POL para gas (~0.05 POL).
         </p>
+
+        {preChecks?.success && (
+          <div className="space-y-1.5 text-xs p-2.5 rounded-md bg-muted/50 border border-border" data-testid="pre-checks-panel">
+            <div className="flex items-center justify-between" data-testid="pre-check-sig-type">
+              <span className="text-muted-foreground">Signature Type</span>
+              <span className="font-mono">{preChecks.sigType} ({sigTypeLabels[preChecks.sigType] || "desconocido"})</span>
+            </div>
+            <div className="flex items-center justify-between" data-testid="pre-check-pol-balance">
+              <span className="text-muted-foreground">Balance POL (gas)</span>
+              <span className={`font-mono ${preChecks.hasSufficientGas ? "text-emerald-400" : "text-destructive"}`}>
+                {preChecks.polBalance} POL
+              </span>
+            </div>
+            <div className="flex items-center justify-between" data-testid="pre-check-usdc-eoa">
+              <span className="text-muted-foreground">USDC.e en EOA</span>
+              <span className="font-mono">${preChecks.fundLocation.eoaUsdcE}</span>
+            </div>
+            {preChecks.fundLocation.proxyUsdcE !== undefined && (
+              <div className="flex items-center justify-between" data-testid="pre-check-usdc-proxy">
+                <span className="text-muted-foreground">USDC.e en Proxy</span>
+                <span className="font-mono">${preChecks.fundLocation.proxyUsdcE}</span>
+              </div>
+            )}
+            {!preChecks.hasSufficientGas && (
+              <div className="p-2 rounded-md bg-destructive/10 border border-destructive/30 mt-1" data-testid="warning-no-gas">
+                <span className="text-destructive text-[11px]">
+                  POL insuficiente para gas. Necesitas al menos 0.05 POL en tu wallet EOA.
+                </span>
+              </div>
+            )}
+            {preChecks.fundLocation.warning && (
+              <div className="p-2 rounded-md bg-yellow-500/10 border border-yellow-500/30 mt-1" data-testid="warning-fund-location">
+                <span className="text-yellow-400 text-[11px]">
+                  {preChecks.fundLocation.warning}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
         {approvalStatus?.success && (
           <div className="space-y-1.5 text-xs font-mono" data-testid="status-approval-list">
             <div className="flex items-center justify-between" data-testid="status-approval-usdc-ctf">
@@ -735,7 +793,7 @@ function ApprovalCard() {
             variant="outline"
             size="sm"
             onClick={() => approveMutation.mutate()}
-            disabled={approveMutation.isPending}
+            disabled={approveMutation.isPending || (preChecks?.success && !preChecks.hasSufficientGas)}
             data-testid="button-approve-usdc"
           >
             {approveMutation.isPending ? (

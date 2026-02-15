@@ -193,11 +193,64 @@ async function withProviderRetry<T>(
 }
 
 function getSignatureType(): number {
+  const explicit = process.env.POLYMARKET_SIG_TYPE;
+  if (explicit === "0" || explicit === "1" || explicit === "2") {
+    return parseInt(explicit, 10);
+  }
   return process.env.POLYMARKET_FUNDER_ADDRESS ? 1 : 0;
 }
 
 function getFunderAddress(): string | undefined {
   return process.env.POLYMARKET_FUNDER_ADDRESS || undefined;
+}
+
+async function checkPolBalance(provider: JsonRpcProvider, address: string): Promise<{ hasSufficientGas: boolean; balancePol: string; balanceWei: BigNumber }> {
+  const balance = await provider.getBalance(address);
+  const polAmount = parseFloat(balance.toString()) / 1e18;
+  const MIN_POL_FOR_APPROVALS = 0.05;
+  return {
+    hasSufficientGas: polAmount >= MIN_POL_FOR_APPROVALS,
+    balancePol: polAmount.toFixed(4),
+    balanceWei: balance,
+  };
+}
+
+async function checkFundLocation(
+  provider: JsonRpcProvider,
+  eoaAddress: string,
+  sigType: number,
+  funderAddress: string | undefined,
+): Promise<{ correct: boolean; warning?: string; eoaUsdcE: string; proxyUsdcE?: string }> {
+  const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
+  const eoaBalance = await usdc.balanceOf(eoaAddress).catch(() => BigNumber.from(0));
+  const eoaUsdcE = (parseFloat(eoaBalance.toString()) / 1e6).toFixed(2);
+
+  if (sigType === 0) {
+    if (parseFloat(eoaUsdcE) < 0.01) {
+      return {
+        correct: false,
+        warning: `sigType=0 (EOA directo): No hay USDC.e en tu wallet EOA (${eoaAddress.slice(0, 6)}...${eoaAddress.slice(-4)}). Los fondos deben estar en esta direccion, NO en tu cuenta de Polymarket.com.`,
+        eoaUsdcE,
+      };
+    }
+    return { correct: true, eoaUsdcE };
+  }
+
+  if ((sigType === 1 || sigType === 2) && funderAddress) {
+    const proxyBalance = await usdc.balanceOf(funderAddress).catch(() => BigNumber.from(0));
+    const proxyUsdcE = (parseFloat(proxyBalance.toString()) / 1e6).toFixed(2);
+    if (parseFloat(proxyUsdcE) < 0.01 && parseFloat(eoaUsdcE) > 0) {
+      return {
+        correct: false,
+        warning: `sigType=${sigType} (proxy): Los USDC.e estan en tu EOA (${eoaUsdcE}) pero deberian estar en tu proxy wallet (${funderAddress.slice(0, 6)}...${funderAddress.slice(-4)}). Transfiere los fondos a la direccion proxy.`,
+        eoaUsdcE,
+        proxyUsdcE,
+      };
+    }
+    return { correct: true, eoaUsdcE, proxyUsdcE };
+  }
+
+  return { correct: true, eoaUsdcE };
 }
 
 export interface LiveOrderResult {
@@ -404,6 +457,36 @@ export class LiveTradingClient {
     };
   }
 
+  async getPreApprovalChecks(): Promise<{
+    polBalance: string;
+    hasSufficientGas: boolean;
+    fundLocation: { correct: boolean; warning?: string; eoaUsdcE: string; proxyUsdcE?: string };
+    sigType: number;
+    walletAddress: string;
+  } | null> {
+    if (!this.wallet) return null;
+    try {
+      const provider = await getWorkingProvider();
+      const address = await this.wallet.getAddress();
+      const sigType = this.detectedSigType ?? getSignatureType();
+      const funder = getFunderAddress();
+
+      const polCheck = await checkPolBalance(provider, address);
+      const fundCheck = await checkFundLocation(provider, address, sigType, funder);
+
+      return {
+        polBalance: polCheck.balancePol,
+        hasSufficientGas: polCheck.hasSufficientGas,
+        fundLocation: fundCheck,
+        sigType,
+        walletAddress: address,
+      };
+    } catch (error: any) {
+      console.error(`[LiveTrading] Pre-approval check error: ${error.message}`);
+      return null;
+    }
+  }
+
   private async reinitializeWithSigType(sigType: number): Promise<void> {
     if (!this.wallet || !this.creds) return;
     try {
@@ -506,111 +589,186 @@ export class LiveTradingClient {
     success: boolean;
     results: { step: string; txHash?: string; error?: string; skipped?: boolean }[];
     error?: string;
+    preChecks?: {
+      polBalance?: string;
+      fundLocation?: { correct: boolean; warning?: string; eoaUsdcE: string; proxyUsdcE?: string };
+      sigType?: number;
+    };
   }> {
     if (!this.wallet) {
       return { success: false, results: [], error: "Wallet not initialized" };
     }
 
     const results: { step: string; txHash?: string; error?: string; skipped?: boolean }[] = [];
+    const preChecks: any = {};
 
     try {
-      await withProviderRetry(async (provider) => {
-        const signer = this.wallet!.connect(provider);
-        const address = await this.wallet!.getAddress();
-        const maxApproval = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-        const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, signer);
-        const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, signer);
+      const provider = await getWorkingProvider();
+      const address = await this.wallet.getAddress();
+      const sigType = this.detectedSigType ?? getSignatureType();
+      const funder = getFunderAddress();
+      preChecks.sigType = sigType;
 
-        const zero = BigNumber.from(0);
-        const highThreshold = BigNumber.from("1000000000000");
+      console.log(`[LiveTrading] Pre-approval checks: address=${address}, sigType=${sigType}, funder=${funder || "none"}`);
 
-        console.log("[LiveTrading] Checking current approval status (serialized)...");
-        const checkResults = await serialRpcCall<BigNumber | boolean>([
-          () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
-          () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
-          () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
-          () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
-          () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
-          () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
-        ], 1000);
+      const polCheck = await checkPolBalance(provider, address);
+      preChecks.polBalance = polCheck.balancePol;
+      console.log(`[LiveTrading] POL balance: ${polCheck.balancePol} POL`);
 
-        const allowCtf = checkResults[0] as BigNumber;
-        const allowNeg = checkResults[1] as BigNumber;
-        const allowAdapter = checkResults[2] as BigNumber;
-        const approvedCtfExch = checkResults[3] as boolean;
-        const approvedNegExch = checkResults[4] as boolean;
-        const approvedNegAdapter = checkResults[5] as boolean;
+      if (!polCheck.hasSufficientGas) {
+        const errorMsg = `Balance de POL insuficiente para gas: ${polCheck.balancePol} POL. Necesitas al menos 0.05 POL en tu wallet EOA (${address.slice(0, 6)}...${address.slice(-4)}) para pagar las transacciones de aprobacion.`;
+        console.error(`[LiveTrading] ${errorMsg}`);
+        await storage.createEvent({
+          type: "ERROR",
+          message: errorMsg,
+          data: { polBalance: polCheck.balancePol, address },
+          level: "error",
+        });
+        return { success: false, results: [], error: errorMsg, preChecks };
+      }
 
-        const approvalSteps: { name: string; check: () => boolean; execute: (overrides?: any) => Promise<any> }[] = [
-          {
-            name: "USDC → CTF Exchange",
-            check: () => allowCtf.gt(highThreshold),
-            execute: (ov) => usdc.approve(CTF_EXCHANGE, maxApproval, ov || {}),
-          },
-          {
-            name: "USDC → Neg Risk Exchange",
-            check: () => allowNeg.gt(highThreshold),
-            execute: (ov) => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval, ov || {}),
-          },
-          {
-            name: "USDC → Neg Risk Adapter",
-            check: () => allowAdapter.gt(highThreshold),
-            execute: (ov) => usdc.approve(NEG_RISK_ADAPTER, maxApproval, ov || {}),
-          },
-          {
-            name: "CTF → CTF Exchange",
-            check: () => approvedCtfExch,
-            execute: (ov) => ctf.setApprovalForAll(CTF_EXCHANGE, true, ov || {}),
-          },
-          {
-            name: "CTF → Neg Risk Exchange",
-            check: () => approvedNegExch,
-            execute: (ov) => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true, ov || {}),
-          },
-          {
-            name: "CTF → Neg Risk Adapter",
-            check: () => approvedNegAdapter,
-            execute: (ov) => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true, ov || {}),
-          },
-        ];
+      const fundCheck = await checkFundLocation(provider, address, sigType, funder);
+      preChecks.fundLocation = fundCheck;
+      if (!fundCheck.correct && fundCheck.warning) {
+        console.warn(`[LiveTrading] Fund location warning: ${fundCheck.warning}`);
+        await storage.createEvent({
+          type: "RISK_ALERT",
+          message: fundCheck.warning,
+          data: { eoaUsdcE: fundCheck.eoaUsdcE, proxyUsdcE: fundCheck.proxyUsdcE, sigType },
+          level: "warn",
+        });
+      }
 
-        const feeData = await provider.getFeeData();
-        const minTipGwei = BigNumber.from("30000000000");
-        const gasOverrides: any = {};
-        if (feeData.maxFeePerGas) {
-          gasOverrides.maxFeePerGas = feeData.maxFeePerGas.mul(2);
-          gasOverrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas && feeData.maxPriorityFeePerGas.gt(minTipGwei)
-            ? feeData.maxPriorityFeePerGas
-            : minTipGwei;
-        } else if (feeData.gasPrice) {
-          const minGasPrice = BigNumber.from("50000000000");
-          gasOverrides.gasPrice = feeData.gasPrice.gt(minGasPrice) ? feeData.gasPrice : minGasPrice;
+      const signer = this.wallet.connect(provider);
+      const maxApproval = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+      const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, signer);
+      const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, signer);
+
+      const zero = BigNumber.from(0);
+      const highThreshold = BigNumber.from("1000000000000");
+
+      console.log("[LiveTrading] Checking current approval status (serialized)...");
+      const checkResults = await serialRpcCall<BigNumber | boolean>([
+        () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
+        () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
+        () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
+        () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
+        () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
+        () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
+      ], 1000);
+
+      const allowCtf = checkResults[0] as BigNumber;
+      const allowNeg = checkResults[1] as BigNumber;
+      const allowAdapter = checkResults[2] as BigNumber;
+      const approvedCtfExch = checkResults[3] as boolean;
+      const approvedNegExch = checkResults[4] as boolean;
+      const approvedNegAdapter = checkResults[5] as boolean;
+
+      const approvalSteps: { name: string; check: () => boolean; execute: (overrides?: any) => Promise<any> }[] = [
+        {
+          name: "USDC → CTF Exchange",
+          check: () => allowCtf.gt(highThreshold),
+          execute: (ov) => usdc.approve(CTF_EXCHANGE, maxApproval, ov || {}),
+        },
+        {
+          name: "USDC → Neg Risk Exchange",
+          check: () => allowNeg.gt(highThreshold),
+          execute: (ov) => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval, ov || {}),
+        },
+        {
+          name: "USDC → Neg Risk Adapter",
+          check: () => allowAdapter.gt(highThreshold),
+          execute: (ov) => usdc.approve(NEG_RISK_ADAPTER, maxApproval, ov || {}),
+        },
+        {
+          name: "CTF → CTF Exchange",
+          check: () => approvedCtfExch,
+          execute: (ov) => ctf.setApprovalForAll(CTF_EXCHANGE, true, ov || {}),
+        },
+        {
+          name: "CTF → Neg Risk Exchange",
+          check: () => approvedNegExch,
+          execute: (ov) => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true, ov || {}),
+        },
+        {
+          name: "CTF → Neg Risk Adapter",
+          check: () => approvedNegAdapter,
+          execute: (ov) => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true, ov || {}),
+        },
+      ];
+
+      const feeData = await provider.getFeeData();
+      const minTipGwei = BigNumber.from("30000000000");
+      const gasOverrides: any = {};
+      if (feeData.maxFeePerGas) {
+        gasOverrides.maxFeePerGas = feeData.maxFeePerGas.mul(2);
+        gasOverrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas && feeData.maxPriorityFeePerGas.gt(minTipGwei)
+          ? feeData.maxPriorityFeePerGas
+          : minTipGwei;
+      } else if (feeData.gasPrice) {
+        const minGasPrice = BigNumber.from("50000000000");
+        gasOverrides.gasPrice = feeData.gasPrice.gt(minGasPrice) ? feeData.gasPrice : minGasPrice;
+      }
+      console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}`);
+
+      for (const step of approvalSteps) {
+        if (step.check()) {
+          results.push({ step: step.name, skipped: true });
+          console.log(`[LiveTrading] ${step.name}: already approved, skipping`);
+          continue;
         }
-        console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}`);
 
-        for (const step of approvalSteps) {
-          if (step.check()) {
-            results.push({ step: step.name, skipped: true });
-            console.log(`[LiveTrading] ${step.name}: already approved, skipping`);
-          } else {
-            console.log(`[LiveTrading] Approving ${step.name}...`);
-            await delay(2000);
+        let stepSuccess = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            console.log(`[LiveTrading] Approving ${step.name}${attempt > 0 ? ` (retry ${attempt})` : ""}...`);
+            await delay(attempt === 0 ? 2000 : 4000);
             const tx = await step.execute(gasOverrides);
             const receipt = await tx.wait();
             results.push({ step: step.name, txHash: receipt.transactionHash });
             console.log(`[LiveTrading] ${step.name} approved: ${receipt.transactionHash}`);
+            stepSuccess = true;
+            break;
+          } catch (err: any) {
+            const errMsg = err.message?.slice(0, 120) || "unknown error";
+            console.error(`[LiveTrading] ${step.name} attempt ${attempt + 1} failed: ${errMsg}`);
+            if (attempt === 2) {
+              results.push({ step: step.name, error: errMsg });
+              console.error(`[LiveTrading] ${step.name}: all 3 attempts failed, continuing with remaining steps`);
+            } else if (isRetryableRpcError(err.message)) {
+              markRpcError();
+              await delay(3000 * (attempt + 1));
+            } else if (err.message?.includes("insufficient funds") || err.message?.includes("gas required exceeds")) {
+              results.push({ step: step.name, error: `Gas insuficiente: ${errMsg}` });
+              break;
+            }
           }
         }
-      });
+      }
+
+      const failed = results.filter(r => r.error);
+      const succeeded = results.filter(r => r.txHash);
+      const skipped = results.filter(r => r.skipped);
+
+      if (failed.length > 0) {
+        const msg = `Aprobaciones parciales: ${succeeded.length} exitosas, ${skipped.length} ya aprobadas, ${failed.length} fallidas`;
+        await storage.createEvent({
+          type: "RISK_ALERT",
+          message: msg,
+          data: { results },
+          level: "warn",
+        });
+        return { success: false, results, error: msg, preChecks };
+      }
 
       await storage.createEvent({
         type: "INFO",
-        message: `All approvals completed: ${results.filter(r => !r.skipped).length} new, ${results.filter(r => r.skipped).length} already approved`,
+        message: `Todas las aprobaciones completadas: ${succeeded.length} nuevas, ${skipped.length} ya aprobadas`,
         data: { results },
         level: "info",
       });
 
-      return { success: true, results };
+      return { success: true, results, preChecks };
     } catch (error: any) {
       console.error(`[LiveTrading] Approval error: ${error.message}`);
       await storage.createEvent({
@@ -619,7 +777,7 @@ export class LiveTradingClient {
         data: { error: error.message, completedSteps: results },
         level: "error",
       });
-      return { success: false, results, error: error.message };
+      return { success: false, results, error: error.message, preChecks };
     }
   }
 
