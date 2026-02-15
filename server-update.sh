@@ -74,9 +74,12 @@ echo -e "${GREEN}      Dependencias instaladas${NC}"
 echo -e "${YELLOW}[4/6] Compilando aplicación...${NC}"
 rm -rf "$APP_DIR/dist"
 
+export NODE_OPTIONS="--max-old-space-size=768"
 if ! npx tsx script/build.ts 2>&1; then
+  unset NODE_OPTIONS
   rollback_and_exit "Build falló durante compilación"
 fi
+unset NODE_OPTIONS
 
 # ─── PASO 5: Verificar que el build generó los archivos necesarios ───
 echo -e "${YELLOW}[5/6] Verificando build...${NC}"
