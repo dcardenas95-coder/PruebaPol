@@ -5,7 +5,7 @@ import { RiskManager } from "./risk-manager";
 import { liveTradingClient } from "./live-trading-client";
 import { polymarketWs } from "./polymarket-ws";
 import { apiRateLimiter } from "./rate-limiter";
-import type { BotConfig, MarketData, BotStatus } from "@shared/schema";
+import type { BotConfig, MarketData, BotStatus, Order } from "@shared/schema";
 import { format } from "date-fns";
 import { fetchCurrentIntervalMarket, type AssetType, type IntervalType } from "../strategies/dualEntry5m/market-5m-discovery";
 
@@ -150,9 +150,73 @@ export class StrategyEngine {
       level: "info",
     });
 
+    this.setupTakeProfitCallback(config);
     this.setupWebSocket(config);
 
     this.interval = setInterval(() => this.tick(), 3000);
+  }
+
+  private setupTakeProfitCallback(config: BotConfig): void {
+    this.orderManager.onBuyFill(async (marketId, side, fillSize, avgEntryPrice) => {
+      try {
+        const freshConfig = await storage.getBotConfig();
+        if (!freshConfig || !freshConfig.isActive) return;
+        const currentState = freshConfig.currentState as BotState;
+        if (currentState !== "MAKING" && currentState !== "UNWIND") return;
+
+        const tokenId = freshConfig.currentMarketId || "";
+        const negRisk = freshConfig.currentMarketNegRisk ?? false;
+        const tickSize = freshConfig.currentMarketTickSize ?? "0.01";
+        if (!tokenId) return;
+
+        const exitPrice = this.marketData.getExitPrice(avgEntryPrice, freshConfig.targetProfitMin, freshConfig.targetProfitMax);
+
+        const pos = await storage.getPositionByMarket(marketId, "BUY");
+        if (!pos) return;
+
+        await storage.upsertPosition({
+          marketId: pos.marketId,
+          side: pos.side,
+          size: pos.size,
+          avgEntryPrice: pos.avgEntryPrice,
+          targetExitPrice: exitPrice,
+          unrealizedPnl: pos.unrealizedPnl,
+          realizedPnl: pos.realizedPnl,
+        });
+
+        const activeOrders = await this.orderManager.getActiveOrders();
+        const existingTps = activeOrders.filter(o => o.side === "SELL" && o.marketId === marketId);
+
+        if (existingTps.length >= 4) return;
+
+        const tpCoveredSize = existingTps.reduce((sum, o) => sum + (o.size - o.filledSize), 0);
+        const uncoveredSize = pos.size - tpCoveredSize;
+
+        if (uncoveredSize < 0.5) return;
+
+        const tpSize = Math.min(uncoveredSize, freshConfig.orderSize);
+
+        await storage.createEvent({
+          type: "ORDER_PLACED",
+          message: `[TP-IMMEDIATE] BUY filled → placing SELL TP: ${tpSize.toFixed(2)} @ $${exitPrice.toFixed(4)} (entry avg: $${avgEntryPrice.toFixed(4)}, uncovered: ${uncoveredSize.toFixed(2)})`,
+          data: { avgEntryPrice, exitPrice, tpSize, uncoveredSize, existingTpCount: existingTps.length },
+          level: "info",
+        });
+
+        await this.orderManager.placeOrder({
+          marketId,
+          tokenId,
+          side: "SELL",
+          price: exitPrice,
+          size: tpSize,
+          isPaperTrade: freshConfig.isPaperTrading,
+          negRisk,
+          tickSize,
+        });
+      } catch (err: any) {
+        console.error(`[StrategyEngine] Immediate TP placement error: ${err.message} | stack: ${err.stack?.split("\n")[1]?.trim() || "none"}`);
+      }
+    });
   }
 
   private setupWebSocket(config: BotConfig): void {
@@ -405,6 +469,29 @@ export class StrategyEngine {
       return;
     }
 
+    const tokenId = config.currentMarketId || "";
+    const marketId = config.currentMarketSlug || config.currentMarketId || "unknown";
+    const negRisk = config.currentMarketNegRisk ?? false;
+    const tickSize = config.currentMarketTickSize ?? "0.01";
+
+    if (!tokenId || tokenId.includes("sim")) {
+      await storage.createEvent({
+        type: "ERROR",
+        message: "Cannot place live orders: no real market token selected. Select a market in Configuration first.",
+        data: { marketId, tokenId },
+        level: "error",
+      });
+      return;
+    }
+
+    const activeOrders = await this.orderManager.getActiveOrders();
+    const entryOrders = activeOrders.filter(o => o.side === "BUY");
+    const tpOrders = activeOrders.filter(o => o.side === "SELL");
+
+    await this.ensureTakeProfitOrders(config, data, tpOrders, tokenId, marketId, negRisk, tickSize);
+
+    if (entryOrders.length >= 3) return;
+
     const riskCheck = await this.riskManager.checkPreTrade(config, config.orderSize * data.bestBid);
     if (!riskCheck.allowed) {
       return;
@@ -436,26 +523,8 @@ export class StrategyEngine {
       }
     }
 
-    const activeOrders = await this.orderManager.getActiveOrders();
-    if (activeOrders.length >= 4) return;
-
     const bestSide = this.marketData.getBestSide();
     if (!bestSide) return;
-
-    const tokenId = config.currentMarketId || "";
-    const marketId = config.currentMarketSlug || config.currentMarketId || "unknown";
-    const negRisk = config.currentMarketNegRisk ?? false;
-    const tickSize = config.currentMarketTickSize ?? "0.01";
-
-    if (!tokenId || tokenId.includes("sim")) {
-      await storage.createEvent({
-        type: "ERROR",
-        message: "Cannot place live orders: no real market token selected. Select a market in Configuration first.",
-        data: { marketId, tokenId },
-        level: "error",
-      });
-      return;
-    }
 
     if (bestSide === "BUY") {
       await this.orderManager.placeOrder({
@@ -469,23 +538,78 @@ export class StrategyEngine {
         tickSize,
       });
     }
+  }
 
+  private async ensureTakeProfitOrders(
+    config: BotConfig,
+    data: MarketData,
+    existingTpOrders: Order[],
+    tokenId: string,
+    marketId: string,
+    negRisk: boolean,
+    tickSize: string,
+  ): Promise<void> {
     const positions = await storage.getPositions();
     const buyPositions = positions.filter(p => p.side === "BUY" && p.size > 0);
+
+    if (buyPositions.length === 0) return;
+
     for (const pos of buyPositions) {
-      const exitPrice = this.marketData.getExitPrice(pos.avgEntryPrice, config.targetProfitMin, config.targetProfitMax);
-      if (data.bestAsk >= exitPrice) {
-        await this.orderManager.placeOrder({
-          marketId,
-          tokenId,
-          side: "SELL",
-          price: exitPrice,
-          size: Math.min(pos.size, config.orderSize),
-          isPaperTrade: config.isPaperTrading,
-          negRisk,
-          tickSize,
+      const tpForThisPos = existingTpOrders.filter(o => o.marketId === pos.marketId);
+      const tpCoveredSize = tpForThisPos.reduce((sum, o) => sum + (o.size - o.filledSize), 0);
+      const uncoveredSize = pos.size - tpCoveredSize;
+
+      if (uncoveredSize < 0.5) continue;
+
+      let exitPrice = pos.targetExitPrice;
+      const newExitPrice = this.marketData.getExitPrice(pos.avgEntryPrice, config.targetProfitMin, config.targetProfitMax);
+
+      if (!exitPrice || Math.abs(exitPrice - newExitPrice) > 0.005) {
+        exitPrice = newExitPrice;
+        await storage.upsertPosition({
+          marketId: pos.marketId,
+          side: pos.side,
+          size: pos.size,
+          avgEntryPrice: pos.avgEntryPrice,
+          targetExitPrice: exitPrice,
+          unrealizedPnl: pos.unrealizedPnl,
+          realizedPnl: pos.realizedPnl,
         });
+
+        if (tpForThisPos.length > 0 && Math.abs((pos.targetExitPrice || 0) - exitPrice) > 0.005) {
+          for (const oldTp of tpForThisPos) {
+            await this.orderManager.cancelOrder(oldTp.id);
+          }
+          await storage.createEvent({
+            type: "INFO",
+            message: `[TP] Cancelled ${tpForThisPos.length} stale TP orders (entry avg changed, old TP: $${(pos.targetExitPrice || 0).toFixed(4)} → new: $${exitPrice.toFixed(4)})`,
+            data: { oldTp: pos.targetExitPrice, newTp: exitPrice, cancelled: tpForThisPos.length },
+            level: "info",
+          });
+        }
       }
+
+      const tpSize = Math.min(uncoveredSize, config.orderSize);
+
+      if (existingTpOrders.length >= 4) return;
+
+      await storage.createEvent({
+        type: "ORDER_PLACED",
+        message: `[TP] Placing take-profit SELL: ${tpSize.toFixed(2)} @ $${exitPrice.toFixed(4)} (entry avg: $${pos.avgEntryPrice.toFixed(4)}, profit target: $${(exitPrice - pos.avgEntryPrice).toFixed(4)})`,
+        data: { entryPrice: pos.avgEntryPrice, exitPrice, size: tpSize, uncoveredSize, tpCoveredSize },
+        level: "info",
+      });
+
+      await this.orderManager.placeOrder({
+        marketId,
+        tokenId,
+        side: "SELL",
+        price: exitPrice,
+        size: tpSize,
+        isPaperTrade: config.isPaperTrading,
+        negRisk,
+        tickSize,
+      });
     }
   }
 

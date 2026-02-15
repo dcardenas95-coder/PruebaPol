@@ -3,9 +3,16 @@ import { randomUUID } from "crypto";
 import type { Order, InsertOrder } from "@shared/schema";
 import { liveTradingClient } from "./live-trading-client";
 
+type FillCallback = (marketId: string, side: string, fillSize: number, fillPrice: number) => Promise<void>;
+
 export class OrderManager {
   private orderTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private readonly DEFAULT_ORDER_TTL = 5 * 60 * 1000;
+  private onBuyFillCallback: FillCallback | null = null;
+
+  onBuyFill(cb: FillCallback): void {
+    this.onBuyFillCallback = cb;
+  }
 
   async reconcileOnStartup(): Promise<void> {
     if (!liveTradingClient.isInitialized()) return;
@@ -568,6 +575,16 @@ export class OrderManager {
         data: { marketId, side: "BUY", fillSize, fillPrice },
         level: "info",
       });
+
+      if (this.onBuyFillCallback) {
+        try {
+          const pos = await storage.getPositionByMarket(marketId, "BUY");
+          const avgEntry = pos?.avgEntryPrice || fillPrice;
+          await this.onBuyFillCallback(marketId, "BUY", fillSize, avgEntry);
+        } catch (err: any) {
+          console.error(`[OrderManager] onBuyFill callback error: ${err.message}`);
+        }
+      }
 
       return 0;
     } else {

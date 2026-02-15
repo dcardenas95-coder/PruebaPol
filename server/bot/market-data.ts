@@ -130,7 +130,7 @@ export class MarketDataModule {
   }
 
   getExitPrice(entryPrice: number, profitMin: number, profitMax: number): number {
-    const target = profitMin + Math.random() * (profitMax - profitMin);
+    const target = (profitMin + profitMax) / 2;
     return parseFloat((entryPrice + target).toFixed(4));
   }
 }

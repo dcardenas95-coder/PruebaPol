@@ -69,6 +69,7 @@ export const positions = pgTable("positions", {
   side: orderSideEnum("side").notNull(),
   size: real("size").notNull().default(0),
   avgEntryPrice: real("avg_entry_price").notNull().default(0),
+  targetExitPrice: real("target_exit_price"),
   unrealizedPnl: real("unrealized_pnl").notNull().default(0),
   realizedPnl: real("realized_pnl").notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
