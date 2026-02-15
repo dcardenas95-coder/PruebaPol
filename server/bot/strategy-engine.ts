@@ -239,6 +239,8 @@ export class StrategyEngine {
         const freshConfig = await storage.getBotConfig();
         return freshConfig ? this.getMarketAssetIds(freshConfig) : assetIds;
       });
+
+      this.marketData.startRestPolling();
     }
 
     if (!config.isPaperTrading && liveTradingClient.isInitialized()) {
@@ -325,6 +327,7 @@ export class StrategyEngine {
     }
 
     polymarketWs.disconnectAll();
+    this.marketData.stopRestPolling();
     this.wsSetup = false;
 
     this.liquidationInterval = setInterval(() => this.liquidationTick(), 3000);
@@ -514,6 +517,7 @@ export class StrategyEngine {
     }
 
     polymarketWs.disconnectAll();
+    this.marketData.stopRestPolling();
     this.wsSetup = false;
     this.orderManager.clearAllTimeouts();
 
@@ -1152,6 +1156,10 @@ export class StrategyEngine {
 
   getOrderManager(): OrderManager {
     return this.orderManager;
+  }
+
+  getMarketDataStatus(): { source: string; wsActive: boolean; restPolling: boolean; lastUpdate: number | null } {
+    return this.marketData.getDataSourceStatus();
   }
 
   async getStatus(): Promise<BotStatus> {

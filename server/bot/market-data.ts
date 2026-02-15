@@ -11,6 +11,9 @@ export class MarketDataModule {
   private wsSource: PolymarketWebSocket | null = null;
   private lastWsUpdate = 0;
   private readonly WS_STALE_THRESHOLD = 15_000;
+  private restPollingTimer: ReturnType<typeof setInterval> | null = null;
+  private restPollingActive = false;
+  private readonly REST_POLL_INTERVAL = 3_000;
 
   setTokenId(tokenId: string | null): void {
     const prevToken = this.currentTokenId;
@@ -98,12 +101,59 @@ export class MarketDataModule {
 
   private lastRestFallbackLog = 0;
 
+  startRestPolling(): void {
+    if (this.restPollingTimer) return;
+    this.restPollingActive = true;
+    console.log(`[MarketData] REST polling started (interval: ${this.REST_POLL_INTERVAL}ms)`);
+    this.restPollingTimer = setInterval(async () => {
+      if (this.isWsActive()) {
+        if (this.restPollingActive) {
+          console.log(`[MarketData] WebSocket recovered, pausing REST polling`);
+          this.restPollingActive = false;
+        }
+        return;
+      }
+      if (!this.restPollingActive) {
+        console.log(`[MarketData] WebSocket down, activating REST polling fallback`);
+        this.restPollingActive = true;
+      }
+      if (this.currentTokenId && !this.useSimulation) {
+        await this.fetchLiveData();
+      }
+    }, this.REST_POLL_INTERVAL);
+  }
+
+  stopRestPolling(): void {
+    if (this.restPollingTimer) {
+      clearInterval(this.restPollingTimer);
+      this.restPollingTimer = null;
+      this.restPollingActive = false;
+      console.log(`[MarketData] REST polling stopped`);
+    }
+  }
+
+  isRestPollingActive(): boolean {
+    return this.restPollingActive;
+  }
+
+  getDataSourceStatus(): { source: "websocket" | "rest_polling" | "simulation"; wsActive: boolean; restPolling: boolean; lastUpdate: number | null } {
+    return {
+      source: this.isWsActive() ? "websocket" : (this.restPollingActive && !this.useSimulation ? "rest_polling" : "simulation"),
+      wsActive: this.isWsActive(),
+      restPolling: this.restPollingActive,
+      lastUpdate: this.lastWsUpdate || null,
+    };
+  }
+
   async getData(): Promise<MarketData> {
     if (this.isWsActive() && this.lastData) {
       return this.lastData;
     }
 
     if (this.currentTokenId && !this.useSimulation) {
+      if (this.lastData && this.restPollingActive) {
+        return this.lastData;
+      }
       const now = Date.now();
       if (now - this.lastRestFallbackLog > 30_000) {
         this.lastRestFallbackLog = now;

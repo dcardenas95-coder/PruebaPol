@@ -12,6 +12,8 @@ import { apiRateLimiter } from "./bot/rate-limiter";
 import { dualEntryRouter } from "./strategies/dualEntry5m/routes";
 import { dualEntry5mEngine } from "./strategies/dualEntry5m/engine";
 import { fetchCurrent5mMarket, type AssetType } from "./strategies/dualEntry5m/market-5m-discovery";
+import { runHealthCheck, startHealthMonitor } from "./bot/health-monitor";
+import { alertManager } from "./bot/alert-manager";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -553,6 +555,61 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const result = await runHealthCheck();
+      const statusCode = result.overall === "healthy" ? 200 : result.overall === "degraded" ? 200 : 503;
+      res.status(statusCode).json(result);
+    } catch (error: any) {
+      res.status(503).json({ overall: "unhealthy", error: error.message });
+    }
+  });
+
+  app.get("/api/alerts", async (_req, res) => {
+    try {
+      const limit = parseInt(String(_req.query.limit) || "50", 10);
+      res.json({
+        summary: alertManager.getAlertsSummary(),
+        active: alertManager.getActiveAlerts(),
+        history: alertManager.getAllAlerts(limit),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/alerts/telegram/configure", async (req, res) => {
+    try {
+      const { botToken, chatId } = req.body;
+      if (!botToken || !chatId) {
+        return res.status(400).json({ error: "botToken y chatId son requeridos" });
+      }
+      alertManager.configure({ telegramBotToken: botToken, telegramChatId: chatId });
+      res.json({ success: true, message: "Telegram configurado correctamente" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/alerts/telegram/test", async (_req, res) => {
+    try {
+      const result = await alertManager.testTelegram();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/data-source/status", async (_req, res) => {
+    try {
+      const mdStatus = strategyEngine.getMarketDataStatus();
+      const wsHealth = polymarketWs.getHealth();
+      res.json({ ...mdStatus, ws: wsHealth });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/trading/approval-status", async (_req, res) => {
     try {
       if (!liveTradingClient.isInitialized()) {
@@ -922,6 +979,8 @@ export async function registerRoutes(
       res.status(500).json({ error: error.message });
     }
   });
+
+  startHealthMonitor(30_000);
 
   return httpServer;
 }

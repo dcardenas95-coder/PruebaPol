@@ -77,6 +77,11 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - `POST /api/trading/test-live` - End-to-end test: place min order, verify, cancel
 - `GET /api/ws/health` - WebSocket connection health (status, reconnects, last message)
 - `GET /api/rate-limiter/status` - Rate limiter and circuit breaker status
+- `GET /api/health` - Full system health check (RPC, CLOB, WS, DB, rate limiter) with overall status
+- `GET /api/alerts` - Active and historical alerts with summary
+- `POST /api/alerts/telegram/configure` - Configure Telegram bot notifications (botToken, chatId)
+- `POST /api/alerts/telegram/test` - Send test message to Telegram
+- `GET /api/data-source/status` - Market data source status (websocket/rest_polling/simulation)
 
 ## User Preferences
 - Dark mode default (trading terminal aesthetic)
@@ -88,7 +93,19 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 ## Future Plans
 - **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (últimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posición, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posición está en zona de riesgo ($0.30-$0.70). Evaluar después de tener datos de win rate con la estrategia actual.
 
+## Key Files
+- `server/bot/health-monitor.ts` - System health checks (RPC, CLOB, WS, DB) with 30s periodic monitoring
+- `server/bot/alert-manager.ts` - Connection alerts with Telegram notification support
+- `server/bot/market-data.ts` - Market data with WebSocket primary + REST polling fallback
+
 ## Recent Changes
+- 2026-02-15: Added comprehensive health monitor: /api/health checks RPC (QuickNode), CLOB API, WebSocket, Database, Rate Limiter every 30s with overall healthy/degraded/unhealthy status
+- 2026-02-15: Added connection alert system: auto-detects RPC down, CLOB API down, WebSocket disconnected, circuit breaker open; Spanish-language alerts with 5-min cooldown
+- 2026-02-15: Added Telegram notifications: configurable via dashboard or TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID env vars; sends critical/warning alerts to Telegram
+- 2026-02-15: Added REST polling fallback: when WebSocket disconnects, MarketData module polls orderbook via REST every 3s; auto-pauses when WS recovers
+- 2026-02-15: Configured QuickNode premium RPC as primary endpoint via POLYGON_RPC_URL environment variable
+- 2026-02-15: Added System Health panel to Overview dashboard showing all 5 connection indicators with latency, active alerts, and uptime
+- 2026-02-15: Added Telegram configuration card to Configuration page with save/test buttons
 - 2026-02-15: Overhauled RPC infrastructure: 6 endpoints (Ankr, BlockPI, PublicNode, Llama, Polygon, QuikNode), POLYGON_RPC_URL env var for custom/private RPC, provider caching (60s TTL with error-aware invalidation), exponential backoff on rate limits, withProviderRetry rebuilds contracts on rotation
 - 2026-02-15: Auto-detect signature type: initialize() tries sigTypes [0,1,2] for API key derivation; placeOrder() retries with alternative sigTypes on "invalid signature" error
 - 2026-02-15: Fixed static catch-all middleware: changed app.use to app.get in server/static.ts so POST/PUT/DELETE API requests return JSON instead of HTML in production

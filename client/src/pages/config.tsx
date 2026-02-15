@@ -26,6 +26,8 @@ import {
   CircleX,
   KeyRound,
   RefreshCw,
+  Bell,
+  Send,
 } from "lucide-react";
 import type { BotConfig } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -620,6 +622,7 @@ export default function Configuration() {
       <LiveTestCard config={config} />
       <OptimizationPanel />
       <RateLimiterCard />
+      <TelegramConfigCard />
     </div>
   );
 }
@@ -1065,6 +1068,113 @@ function RateLimiterCard() {
         ) : (
           <Skeleton className="h-16 w-full" />
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TelegramConfigCard() {
+  const { toast } = useToast();
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+
+  const { data: alertsSummary } = useQuery<any>({
+    queryKey: ["/api/alerts"],
+    refetchInterval: 30000,
+  });
+
+  const configureMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/alerts/telegram/configure", { botToken, chatId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      toast({ title: "Telegram configurado correctamente" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const resp = await apiRequest("POST", "/api/alerts/telegram/test");
+      return resp.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.success) {
+        toast({ title: "Mensaje de prueba enviado a Telegram" });
+      } else {
+        toast({ title: "Error al enviar", description: data.error, variant: "destructive" });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const isConfigured = alertsSummary?.summary?.telegramEnabled;
+
+  return (
+    <Card data-testid="card-telegram-config">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Bell className="w-4 h-4" />
+          <CardTitle className="text-base">Alertas Telegram</CardTitle>
+          <Badge variant={isConfigured ? "default" : "secondary"} className="ml-auto" data-testid="badge-telegram-status">
+            {isConfigured ? "Activo" : "No configurado"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground mb-4">
+          Recibe alertas de conexión (RPC caído, WebSocket desconectado, circuit breaker) directamente en Telegram.
+          Crea un bot con @BotFather y obtén tu Chat ID con @userinfobot.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <Label htmlFor="telegram-token" className="text-xs">Bot Token</Label>
+            <Input
+              id="telegram-token"
+              type="password"
+              placeholder="123456:ABC-DEF..."
+              value={botToken}
+              onChange={(e) => setBotToken(e.target.value)}
+              data-testid="input-telegram-token"
+            />
+          </div>
+          <div>
+            <Label htmlFor="telegram-chat-id" className="text-xs">Chat ID</Label>
+            <Input
+              id="telegram-chat-id"
+              placeholder="-1001234567890"
+              value={chatId}
+              onChange={(e) => setChatId(e.target.value)}
+              data-testid="input-telegram-chat-id"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => configureMutation.mutate()}
+            disabled={!botToken || !chatId || configureMutation.isPending}
+            data-testid="button-telegram-save"
+          >
+            {configureMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Save className="w-4 h-4 mr-1" />}
+            Guardar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => testMutation.mutate()}
+            disabled={!isConfigured || testMutation.isPending}
+            data-testid="button-telegram-test"
+          >
+            {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Send className="w-4 h-4 mr-1" />}
+            Enviar prueba
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

@@ -720,8 +720,144 @@ export default function Overview() {
           </div>
         </CardContent>
       </Card>
+
+      <HealthAlertsPanel />
     </div>
   );
+}
+
+function HealthAlertsPanel() {
+  const { data: health } = useQuery<any>({
+    queryKey: ["/api/health"],
+    refetchInterval: 15000,
+  });
+
+  const { data: alerts } = useQuery<any>({
+    queryKey: ["/api/alerts"],
+    refetchInterval: 10000,
+  });
+
+  const overallColor = health?.overall === "healthy"
+    ? "text-emerald-500"
+    : health?.overall === "degraded"
+      ? "text-yellow-500"
+      : "text-red-500";
+
+  const overallBg = health?.overall === "healthy"
+    ? "bg-emerald-500/10"
+    : health?.overall === "degraded"
+      ? "bg-yellow-500/10"
+      : "bg-red-500/10";
+
+  const checks = health?.checks;
+
+  return (
+    <Card data-testid="card-health-alerts">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Activity className="w-4 h-4" />
+          System Health
+        </CardTitle>
+        {health && (
+          <Badge
+            variant="outline"
+            className={`text-[10px] ${overallBg} ${overallColor} border-0`}
+            data-testid="badge-health-overall"
+          >
+            {health.overall === "healthy" ? "Healthy" : health.overall === "degraded" ? "Degraded" : "Unhealthy"}
+          </Badge>
+        )}
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        {checks ? (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+            <HealthCheck
+              label="RPC"
+              status={checks.rpc.status}
+              detail={checks.rpc.latencyMs ? `${checks.rpc.latencyMs}ms` : checks.rpc.error?.slice(0, 20)}
+            />
+            <HealthCheck
+              label="CLOB API"
+              status={checks.clobApi.status}
+              detail={checks.clobApi.latencyMs ? `${checks.clobApi.latencyMs}ms` : checks.clobApi.error?.slice(0, 20)}
+            />
+            <HealthCheck
+              label="WebSocket"
+              status={checks.websocket.status}
+              detail={checks.websocket.market && checks.websocket.user ? "Both OK" : checks.websocket.market ? "Market only" : checks.websocket.user ? "User only" : "Down"}
+            />
+            <HealthCheck
+              label="Database"
+              status={checks.database.status}
+              detail={checks.database.latencyMs ? `${checks.database.latencyMs}ms` : checks.database.error?.slice(0, 20)}
+            />
+            <HealthCheck
+              label="Rate Limiter"
+              status={checks.rateLimiter.status === "ok" ? "ok" : "error"}
+              detail={checks.rateLimiter.circuitOpen ? "Circuit OPEN" : `${checks.rateLimiter.requestsLastMinute} req/min`}
+            />
+          </div>
+        ) : (
+          <Skeleton className="h-12 w-full mb-3" />
+        )}
+
+        {alerts?.active?.length > 0 && (
+          <div className="flex flex-col gap-1.5 mt-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Active Alerts ({alerts.active.length})
+            </span>
+            {alerts.active.slice(0, 5).map((alert: any) => (
+              <div
+                key={alert.id}
+                className={`flex items-center gap-2 p-2 rounded text-xs ${
+                  alert.level === "critical"
+                    ? "bg-red-500/10 text-red-400"
+                    : alert.level === "warning"
+                      ? "bg-yellow-500/10 text-yellow-400"
+                      : "bg-blue-500/10 text-blue-400"
+                }`}
+                data-testid={`alert-${alert.key}`}
+              >
+                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                <span className="font-medium">{alert.title}:</span>
+                <span className="truncate">{alert.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-muted">
+          <span className="text-[10px] text-muted-foreground">
+            Telegram: {alerts?.summary?.telegramEnabled ? "Configurado" : "No configurado"}
+          </span>
+          {health?.uptime && (
+            <span className="text-[10px] text-muted-foreground font-mono">
+              Uptime: {formatUptime(health.uptime)}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function HealthCheck({ label, status, detail }: { label: string; status: string; detail?: string }) {
+  const isOk = status === "ok";
+  return (
+    <div className={`flex flex-col items-center p-2 rounded ${isOk ? "bg-emerald-500/5" : "bg-red-500/10"}`} data-testid={`health-${label.toLowerCase().replace(/\s/g, "-")}`}>
+      <div className={`w-2 h-2 rounded-full mb-1 ${isOk ? "bg-emerald-500" : "bg-red-500"}`} />
+      <span className="text-[10px] font-medium">{label}</span>
+      {detail && <span className={`text-[9px] font-mono ${isOk ? "text-muted-foreground" : "text-red-400"}`}>{detail}</span>}
+    </div>
+  );
+}
+
+function formatUptime(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m ${seconds % 60}s`;
 }
 
 function formatWsTime(ts: number): string {

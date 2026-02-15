@@ -18,6 +18,8 @@ module.exports = {
       error_file: "/var/log/polymaker/error.log",
       out_file: "/var/log/polymaker/out.log",
       merge_logs: true,
+      listen_timeout: 15000,
+      kill_timeout: 5000,
     },
   ],
 };
