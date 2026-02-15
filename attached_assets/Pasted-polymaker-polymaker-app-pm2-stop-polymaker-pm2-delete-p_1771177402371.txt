@@ -1,0 +1,62 @@
+polymaker@polymaker:~/app$ pm2 stop polymaker
+pm2 delete polymaker
+
+# Cargar las variables del .env y iniciar
+export $(cat ~/app/.env | xargs)
+pm2 start ecosystem.config.cjs
+pm2 save
+
+pm2 logs polymaker --lines 20
+[PM2] Applying action stopProcessId on app [polymaker](ids: [ 0 ])
+[PM2] [polymaker](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ polymaker          │ cluster  │ 0    │ stopped   │ 0%       │ 0b       │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Applying action deleteProcessId on app [polymaker](ids: [ 0 ])
+[PM2] [polymaker](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2][WARN] Applications polymaker not running, starting...
+[PM2] App [polymaker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ polymaker          │ cluster  │ 0    │ online    │ 0%       │ 37.7mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/polymaker/.pm2/dump.pm2
+[TAILING] Tailing last 20 lines for [polymaker] process (change the value with --lines option)
+/var/log/polymaker/out.log last 20 lines:
+/var/log/polymaker/error.log last 20 lines:
+0|polymake |     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|polymake |     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|polymake |     at Module._load (node:internal/modules/cjs/loader:1091:12)
+0|polymake |     at cjsLoader (node:internal/modules/esm/translators:298:15)
+0|polymake |     at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:240:7)
+0|polymake |     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+0|polymake |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|polymake |     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24)
+0|polymake | You have triggered an unhandledRejection, you may have forgotten to catch a Promise rejection:
+0|polymake | Error: DATABASE_URL must be set. Did you forget to provision a database?
+0|polymake |     at Object.<anonymous> (/home/polymaker/app/dist/index.cjs:92:110981)
+0|polymake |     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|polymake |     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|polymake |     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|polymake |     at Module._load (node:internal/modules/cjs/loader:1091:12)
+0|polymake |     at cjsLoader (node:internal/modules/esm/translators:298:15)
+0|polymake |     at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:240:7)
+0|polymake |     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+0|polymake |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|polymake |     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24)
+
+0|polymaker  | 2026-02-15 17:43:10 +00:00: Database initialized with default config
+0|polymaker  | 2026-02-15 17:43:10 +00:00: [LiveTrading] Initializing with wallet: 0xe41930ACC249a2a3e079e9c940Fd0A65342590d1
+0|polymaker  | 2026-02-15 17:43:10 +00:00: [LiveTrading] Signature type: 0 (EOA)
+0|polymaker  | 2026-02-15 17:43:10 +00:00: 5:43:10 PM [express] serving on port 5000
+0|polymaker  | 2026-02-15 17:43:10 +00:00: [LiveTrading] Derived existing API key
+0|polymaker  | 2026-02-15 17:43:10 +00:00: [LiveTrading] CLOB connection test: OK
+0|polymaker  | 2026-02-15 17:43:10 +00:00: [Startup] Wallet auto-initialized successfully
+
