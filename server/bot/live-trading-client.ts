@@ -1,7 +1,7 @@
 import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { Wallet } from "@ethersproject/wallet";
-import { JsonRpcProvider } from "@ethersproject/providers";
+import { StaticJsonRpcProvider } from "@ethersproject/providers";
 import { Contract } from "@ethersproject/contracts";
 import { BigNumber } from "@ethersproject/bignumber";
 import { storage } from "../storage";
@@ -45,7 +45,7 @@ function getRpcEndpoints(): string[] {
 
 let currentRpcIndex = 0;
 let lastRpcError = 0;
-let cachedProvider: JsonRpcProvider | null = null;
+let cachedProvider: StaticJsonRpcProvider | null = null;
 let cachedProviderTime = 0;
 const PROVIDER_CACHE_TTL = 60000;
 
@@ -62,8 +62,8 @@ function isRetryableRpcError(msg: string | undefined): boolean {
     msg.includes("ECONNREFUSED");
 }
 
-function createProvider(url: string): JsonRpcProvider {
-  return new JsonRpcProvider({
+function createProvider(url: string): StaticJsonRpcProvider {
+  return new StaticJsonRpcProvider({
     url,
     timeout: 12000,
   }, { chainId: CHAIN_ID, name: "matic" });
@@ -76,7 +76,7 @@ function isCacheValid(): boolean {
   return true;
 }
 
-function getPolygonProvider(): JsonRpcProvider {
+function getPolygonProvider(): StaticJsonRpcProvider {
   if (isCacheValid()) {
     return cachedProvider!;
   }
@@ -91,7 +91,7 @@ function getPolygonProvider(): JsonRpcProvider {
   return provider;
 }
 
-async function getWorkingProvider(): Promise<JsonRpcProvider> {
+async function getWorkingProvider(): Promise<StaticJsonRpcProvider> {
   if (isCacheValid()) {
     return cachedProvider!;
   }
@@ -165,7 +165,7 @@ async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 2000): Pr
 }
 
 async function withProviderRetry<T>(
-  fn: (provider: JsonRpcProvider) => Promise<T>,
+  fn: (provider: StaticJsonRpcProvider) => Promise<T>,
   maxRetries = 4,
 ): Promise<T> {
   let lastErr: Error | null = null;
@@ -204,7 +204,7 @@ function getFunderAddress(): string | undefined {
   return process.env.POLYMARKET_FUNDER_ADDRESS || undefined;
 }
 
-async function checkPolBalance(provider: JsonRpcProvider, address: string): Promise<{ hasSufficientGas: boolean; balancePol: string; balanceWei: BigNumber }> {
+async function checkPolBalance(provider: StaticJsonRpcProvider, address: string): Promise<{ hasSufficientGas: boolean; balancePol: string; balanceWei: BigNumber }> {
   const balance = await provider.getBalance(address);
   const polAmount = parseFloat(balance.toString()) / 1e18;
   const MIN_POL_FOR_APPROVALS = 0.05;
@@ -216,7 +216,7 @@ async function checkPolBalance(provider: JsonRpcProvider, address: string): Prom
 }
 
 async function checkFundLocation(
-  provider: JsonRpcProvider,
+  provider: StaticJsonRpcProvider,
   eoaAddress: string,
   sigType: number,
   funderAddress: string | undefined,
@@ -714,7 +714,7 @@ export class LiveTradingClient {
         },
       ];
 
-      const buildGasOverrides = async (prov: JsonRpcProvider, includeGasLimit: boolean): Promise<any> => {
+      const buildGasOverrides = async (prov: StaticJsonRpcProvider, includeGasLimit: boolean): Promise<any> => {
         const overrides: any = {};
         try {
           const feeData = await prov.getFeeData();
