@@ -9,7 +9,8 @@ const PING_INTERVAL = 30_000;
 const INITIAL_RECONNECT_DELAY = 2_000;
 const MAX_RECONNECT_DELAY = 60_000;
 const RECONNECT_BACKOFF_FACTOR = 2;
-const MAX_RECONNECT_ATTEMPTS = 15;
+const MAX_RECONNECT_ATTEMPTS = 100;
+const STABLE_CONNECTION_THRESHOLD = 30_000;
 
 export interface WsConnectionHealth {
   marketConnected: boolean;
@@ -47,6 +48,8 @@ export class PolymarketWebSocket {
   private userReconnects = 0;
   private marketLastMessage = 0;
   private userLastMessage = 0;
+  private marketConnectedAt = 0;
+  private userConnectedAt = 0;
 
   private subscribedMarketAssets: string[] = [];
   private subscribedUserAssets: string[] = [];
@@ -189,6 +192,7 @@ export class PolymarketWebSocket {
 
       this.marketWs.on("open", () => {
         this.marketConnected = true;
+        this.marketConnectedAt = Date.now();
         this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
         this.log("info", `Market WS: Connected (reconnects: ${this.marketReconnects})`);
 
@@ -241,8 +245,16 @@ export class PolymarketWebSocket {
       });
 
       this.marketWs.on("close", (code: number, reason: Buffer) => {
+        const wasStable = this.marketConnectedAt > 0 && (Date.now() - this.marketConnectedAt) > STABLE_CONNECTION_THRESHOLD;
         this.marketConnected = false;
-        this.log("warn", `Market WS: Disconnected (code: ${code}, reason: ${reason.toString()})`);
+        this.marketConnectedAt = 0;
+        if (wasStable) {
+          this.marketReconnects = 0;
+          this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
+          this.log("info", `Market WS: Disconnected after stable period (code: ${code}). Reset reconnect counter.`);
+        } else {
+          this.log("warn", `Market WS: Disconnected (code: ${code}, reason: ${reason.toString()})`);
+        }
         this._scheduleMarketReconnect();
       });
 
@@ -269,6 +281,7 @@ export class PolymarketWebSocket {
 
       this.userWs.on("open", () => {
         this.userConnected = true;
+        this.userConnectedAt = Date.now();
         this.userReconnectDelay = INITIAL_RECONNECT_DELAY;
         this.log("info", `User WS: Connected (reconnects: ${this.userReconnects})`);
 
@@ -321,8 +334,16 @@ export class PolymarketWebSocket {
       });
 
       this.userWs.on("close", (code: number, reason: Buffer) => {
+        const wasStable = this.userConnectedAt > 0 && (Date.now() - this.userConnectedAt) > STABLE_CONNECTION_THRESHOLD;
         this.userConnected = false;
-        this.log("warn", `User WS: Disconnected (code: ${code}, reason: ${reason.toString()})`);
+        this.userConnectedAt = 0;
+        if (wasStable) {
+          this.userReconnects = 0;
+          this.userReconnectDelay = INITIAL_RECONNECT_DELAY;
+          this.log("info", `User WS: Disconnected after stable period (code: ${code}). Reset reconnect counter.`);
+        } else {
+          this.log("warn", `User WS: Disconnected (code: ${code}, reason: ${reason.toString()})`);
+        }
         this._scheduleUserReconnect();
       });
 
@@ -474,20 +495,25 @@ export class PolymarketWebSocket {
 
     this.marketReconnects++;
     if (this.marketReconnects > MAX_RECONNECT_ATTEMPTS) {
-      this.log("error", `Market WS: Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping.`);
-      this.shouldReconnectMarket = false;
-      return;
+      this.log("warn", `Market WS: Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Will retry in 60s with fresh asset IDs.`);
+      this.marketReconnects = 0;
+      this.marketReconnectDelay = MAX_RECONNECT_DELAY;
     }
 
+    const shouldRefreshAssets = this.marketReconnects > 0 && this.marketReconnects % 5 === 0;
     const delay = Math.min(this.marketReconnectDelay, MAX_RECONNECT_DELAY);
     this.log("info", `Market WS: Reconnecting in ${delay}ms (attempt #${this.marketReconnects}/${MAX_RECONNECT_ATTEMPTS})`);
 
-    this.marketReconnectTimer = setTimeout(() => {
+    this.marketReconnectTimer = setTimeout(async () => {
       this.marketReconnectDelay = Math.min(
         this.marketReconnectDelay * RECONNECT_BACKOFF_FACTOR,
         MAX_RECONNECT_DELAY,
       );
-      this._connectMarket();
+      if (shouldRefreshAssets) {
+        await this._refreshAndReconnectMarket();
+      } else {
+        this._connectMarket();
+      }
     }, delay);
   }
 
@@ -502,9 +528,9 @@ export class PolymarketWebSocket {
 
     this.userReconnects++;
     if (this.userReconnects > MAX_RECONNECT_ATTEMPTS) {
-      this.log("error", `User WS: Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping.`);
-      this.shouldReconnectUser = false;
-      return;
+      this.log("warn", `User WS: Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Will retry in 60s with fresh credentials.`);
+      this.userReconnects = 0;
+      this.userReconnectDelay = MAX_RECONNECT_DELAY;
     }
 
     const delay = Math.min(this.userReconnectDelay, MAX_RECONNECT_DELAY);
