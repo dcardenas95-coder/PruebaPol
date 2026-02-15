@@ -1,0 +1,39 @@
+Las 6 aprobaciones requeridas (son obligatorias TODAS)
+Necesitas aprobar 2 tipos de tokens hacia 3 contratos = 6 transacciones en total:
+Contratos de tokens (origen):
+
+USDC.e: 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 → se aprueba con approve() (ERC-20)
+CTF (Conditional Tokens): 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045 → se aprueba con setApprovalForAll() (ERC-1155)
+
+Contratos destino (spenders/operators):
+#USDC.e → approve()CTF → setApprovalForAll()1CTF Exchange: 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982ECTF Exchange: 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E2Neg Risk CTF Exchange: 0xC5d563A36AE78145C45a50134d48A1215220f80aNeg Risk CTF Exchange: 0xC5d563A36AE78145C45a50134d48A1215220f80a3Neg Risk Adapter: 0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296Neg Risk Adapter: 0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296
+
+Requisitos que DEBEN cumplirse al 100%
+1. Tipo de wallet y signature_type correcto
+Esta es la causa #1 de errores. Hay 3 modos:
+
+signature_type=0 (default): Wallet EOA directa (MetaMask, hardware wallet). Los fondos están EN la misma wallet. Debes hacer los approvals tú mismo con el script.
+signature_type=1: Wallet de email/Magic. Necesitas especificar funder = tu dirección proxy de Polymarket.
+signature_type=2: Wallet de navegador con proxy (MetaMask conectada a Polymarket). Necesitas funder = tu dirección proxy Safe.
+
+Error crítico común: Usar signature_type=0 sin pasar funder, o usar signature_type=1 sin el proxy address correcto.
+2. Los fondos deben estar en la dirección correcta
+
+Si usas signature_type=0 (EOA directo): Los USDC.e deben estar en tu wallet EOA (la misma del private key), NO en tu cuenta de Polymarket.com.
+Si usas signature_type=1 o 2 (proxy): Los USDC.e deben estar en tu proxy wallet de Polymarket (la dirección que aparece en polymarket.com/settings como "Wallet Address").
+
+Error clásico: Tener fondos en tu cuenta de Polymarket.com pero usar signature_type=0, donde el bot busca fondos en tu EOA directamente.
+3. USDC.e correcto (NO USDC genérico)
+Polymarket usa USDC.e (PoS) en Polygon: 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174. Existe otro contrato USDC en Polygon (0x3c499c...) que NO funciona con Polymarket.
+4. Gas en POL (antes MATIC)
+Para ejecutar las transacciones de approval necesitas POL (el token nativo de Polygon, antes llamado MATIC) para pagar gas. Sin esto, las transacciones fallan con "insufficient funds".
+5. Las aprobaciones se hacen DESDE la dirección que tiene los fondos
+Si usas EOA directo, los approvals deben firmarse con el private key de esa EOA. Si usas proxy, los approvals ya están pre-configurados por Polymarket (no necesitas hacerlos manualmente).
+6. Monto de aprobación: MAX_INT
+Aprueba el máximo (2^256 - 1) para no tener que re-aprobar. Esto es lo estándar.
+7. API Credentials
+Después de los approvals, necesitas generar credenciales API:
+pythonclient.set_api_creds(client.create_or_derive_api_creds())
+
+Script recomendado (versión actualizada que funciona)
+Según la comunidad, el script que mejor funciona usa web3.py versión 6.14.0 o la versión más reciente con ExtraDataToPOAMiddleware. El gist oficial de Polymarket está en: https://gist.github.com/poly-rodr/44313920481de58d5a3f6d1f8226bd5e
