@@ -311,6 +311,44 @@ export type WsConnectionHealth = {
   userSubscribedAssets: string[];
 };
 
+export type DualEntry5mCycleInfo = {
+  cycleNumber: number;
+  state: string;
+  windowStart: string;
+  yesFilled: boolean;
+  noFilled: boolean;
+  yesFilledSize: number;
+  noFilledSize: number;
+  winnerSide: string | null;
+  tpFilled: boolean;
+  scratchFilled: boolean;
+  outcome: string | null;
+  pnl: number | null;
+  entryMethod: string | null;
+  actualEntryPrice: number | null;
+  actualTpPrice: number | null;
+  actualOrderSize: number | null;
+  btcVolatility: number | null;
+};
+
+export type DualEntry5mInfo = {
+  isRunning: boolean;
+  currentCycle: DualEntry5mCycleInfo | null;
+  nextWindowStart: string | null;
+  activeCycles: number;
+  marketSlug: string | null;
+  marketQuestion: string | null;
+  asset: string | null;
+  interval: string | null;
+  isDryRun: boolean;
+  dualTpMode: boolean;
+  autoRotate: boolean;
+  orderSize: number;
+  entryPrice: number;
+  tpPrice: number;
+  scratchPrice: number;
+};
+
 export type BotStatus = {
   config: BotConfig;
   marketData: MarketData | null;
@@ -322,4 +360,5 @@ export type BotStatus = {
   isLiveData?: boolean;
   currentTokenId?: string | null;
   wsHealth?: WsConnectionHealth;
+  dualEntry5m?: DualEntry5mInfo;
 };

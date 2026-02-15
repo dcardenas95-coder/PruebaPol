@@ -3,11 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { strategyEngine } from "./bot/strategy-engine";
 import { updateBotConfigSchema } from "@shared/schema";
+import type { DualEntry5mInfo, DualEntry5mCycleInfo } from "@shared/schema";
 import { polymarketClient } from "./bot/polymarket-client";
 import { liveTradingClient } from "./bot/live-trading-client";
 import { polymarketWs } from "./bot/polymarket-ws";
 import { apiRateLimiter } from "./bot/rate-limiter";
 import { dualEntryRouter } from "./strategies/dualEntry5m/routes";
+import { dualEntry5mEngine } from "./strategies/dualEntry5m/engine";
 import { fetchCurrent5mMarket, type AssetType } from "./strategies/dualEntry5m/market-5m-discovery";
 
 export async function registerRoutes(
@@ -20,7 +22,46 @@ export async function registerRoutes(
   app.get("/api/bot/status", async (_req, res) => {
     try {
       const status = await strategyEngine.getStatus();
-      res.json(status);
+
+      const de5m = dualEntry5mEngine.getStatus();
+      const cycle = de5m.currentCycle;
+      const dualEntry5mInfo: DualEntry5mInfo = {
+        isRunning: de5m.isRunning,
+        currentCycle: cycle ? {
+          cycleNumber: cycle.cycleNumber,
+          state: cycle.state,
+          windowStart: cycle.windowStart instanceof Date ? cycle.windowStart.toISOString() : String(cycle.windowStart),
+          yesFilled: cycle.yesFilled,
+          noFilled: cycle.noFilled,
+          yesFilledSize: cycle.yesFilledSize,
+          noFilledSize: cycle.noFilledSize,
+          winnerSide: cycle.winnerSide ?? null,
+          tpFilled: cycle.tpFilled,
+          scratchFilled: cycle.scratchFilled,
+          outcome: cycle.outcome ?? null,
+          pnl: cycle.pnl ?? null,
+          entryMethod: cycle.entryMethod ?? null,
+          actualEntryPrice: cycle.actualEntryPrice ?? null,
+          actualTpPrice: cycle.actualTpPrice ?? null,
+          actualOrderSize: cycle.actualOrderSize ?? null,
+          btcVolatility: cycle.btcVolatility ?? null,
+        } as DualEntry5mCycleInfo : null,
+        nextWindowStart: de5m.nextWindowStart ? (de5m.nextWindowStart instanceof Date ? de5m.nextWindowStart.toISOString() : String(de5m.nextWindowStart)) : null,
+        activeCycles: de5m.activeCycles,
+        marketSlug: de5m.config?.marketSlug ?? null,
+        marketQuestion: null,
+        asset: de5m.config?.autoRotate5mAsset ?? null,
+        interval: de5m.config?.autoRotateInterval ?? null,
+        isDryRun: de5m.config?.isDryRun ?? true,
+        dualTpMode: de5m.config?.dualTpMode ?? false,
+        autoRotate: de5m.config?.autoRotate5m ?? true,
+        orderSize: de5m.config?.orderSize ?? 5,
+        entryPrice: de5m.config?.entryPrice ?? 0.50,
+        tpPrice: de5m.config?.tpPrice ?? 0.55,
+        scratchPrice: de5m.config?.scratchPrice ?? 0.49,
+      };
+
+      res.json({ ...status, dualEntry5m: dualEntry5mInfo });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -81,9 +122,15 @@ export async function registerRoutes(
       }
 
       if (shouldStart) {
-        await strategyEngine.start();
+        const result = await dualEntry5mEngine.start();
+        if (!result.success) {
+          return res.status(400).json({ error: result.error || "Failed to start dual-entry 5m engine" });
+        }
+        await storage.updateBotConfig({ isActive: true });
       } else if (shouldStop) {
-        await strategyEngine.stop();
+        await dualEntry5mEngine.stop();
+        try { await strategyEngine.stop(); } catch (_) {}
+        await storage.updateBotConfig({ isActive: false, currentState: "STOPPED" });
       }
 
       const config = await storage.getBotConfig();
@@ -97,9 +144,12 @@ export async function registerRoutes(
     try {
       const config = await storage.getBotConfig();
       if (config?.killSwitchActive) {
-        await strategyEngine.deactivateKillSwitch();
+        await storage.updateBotConfig({ killSwitchActive: false });
       } else {
-        await strategyEngine.killSwitch();
+        await dualEntry5mEngine.stop();
+        try { await strategyEngine.stop(); } catch (_) {}
+        await storage.updateBotConfig({ killSwitchActive: true, isActive: false, currentState: "STOPPED" });
+        await storage.createEvent({ type: "KILL_SWITCH", message: "Kill switch activated — dual-entry 5m engine stopped" });
       }
       const updated = await storage.getBotConfig();
       res.json(updated);
