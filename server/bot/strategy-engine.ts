@@ -183,7 +183,7 @@ export class StrategyEngine {
           try {
             await this.orderManager.handleWsFill(fillData);
           } catch (err: any) {
-            console.error("[StrategyEngine] WS fill handler error:", err.message);
+            console.error(`[StrategyEngine] WS fill handler error: ${err.message} | fillData: ${JSON.stringify(fillData).slice(0, 200)} | stack: ${err.stack?.split("\n")[1]?.trim() || "none"}`);
           }
         });
       }
@@ -257,6 +257,7 @@ export class StrategyEngine {
   }
 
   private async tick(): Promise<void> {
+    let tickConfig: BotConfig | undefined | null = null;
     try {
       const today = new Date().toDateString();
       if (today !== this.lastDailyReset) {
@@ -271,6 +272,7 @@ export class StrategyEngine {
       }
 
       const config = await storage.getBotConfig();
+      tickConfig = config;
       if (!config || !config.isActive || config.killSwitchActive) return;
 
       if (apiRateLimiter.isCircuitOpen()) {
@@ -362,8 +364,8 @@ export class StrategyEngine {
     } catch (error: any) {
       await storage.createEvent({
         type: "ERROR",
-        message: `Tick error: ${error.message}`,
-        data: { stack: error.stack?.slice(0, 500) },
+        message: `Tick error in state ${tickConfig?.currentState || "UNKNOWN"}: ${error.message}`,
+        data: { state: tickConfig?.currentState, market: tickConfig?.currentMarketSlug, tokenId: tickConfig?.currentMarketId?.slice(0, 12), stack: error.stack?.slice(0, 500), remainingMs: this.getMarketRemainingMs() },
         level: "error",
       });
     }
@@ -429,7 +431,7 @@ export class StrategyEngine {
         }
       } catch (error: any) {
         await apiRateLimiter.recordError(error.message);
-        console.error("[Strategy] Balance check failed:", error.message);
+        console.error(`[Strategy] Balance check failed: ${error.message} | market=${config.currentMarketSlug} | mode=${config.isPaperTrading ? "PAPER" : "LIVE"} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
         return;
       }
     }
@@ -655,7 +657,7 @@ export class StrategyEngine {
         this.waitForMarketInterval = null;
         await this.switchToMarket(freshConfig, market);
       } catch (err: any) {
-        console.error("[StrategyEngine] waitForNextMarket error:", err.message);
+        console.error(`[StrategyEngine] waitForNextMarket error: ${err.message} | asset=${asset} interval=${interval} | stack: ${err.stack?.split("\n")[1]?.trim() || "none"}`);
       }
     }, 5000);
   }
@@ -719,7 +721,7 @@ export class StrategyEngine {
           try {
             await this.orderManager.handleWsFill(fillData);
           } catch (err: any) {
-            console.error("[StrategyEngine] WS fill handler error:", err.message);
+            console.error(`[StrategyEngine] WS fill handler error (reconnect): ${err.message} | fillData: ${JSON.stringify(fillData).slice(0, 200)} | stack: ${err.stack?.split("\n")[1]?.trim() || "none"}`);
           }
         });
       }

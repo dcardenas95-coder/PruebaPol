@@ -49,7 +49,7 @@ async function fetchEventBySlug(slug: string): Promise<any | null> {
     if (!events || events.length === 0) return null;
     return events[0];
   } catch (err: any) {
-    console.error(`[Market5mDiscovery] fetchEventBySlug error for ${slug}:`, err.message);
+    console.error(`[Market5mDiscovery] fetchEventBySlug error: ${err.message} | slug=${slug} | URL: ${GAMMA_BASE}/events?slug=${slug}`);
     return null;
   }
 }

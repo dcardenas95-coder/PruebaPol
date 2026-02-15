@@ -45,8 +45,11 @@ export class PolymarketClient {
   private lastFetchTime = 0;
   private cachedData: MarketData | null = null;
   private readonly MIN_FETCH_INTERVAL = 2000;
+  private orderbookErrorCount = 0;
+  private lastOrderbookErrorLog = 0;
 
   async fetchMarkets(query?: string): Promise<PolymarketMarket[]> {
+    const url = `${GAMMA_BASE}/markets`;
     try {
       const params = new URLSearchParams({
         closed: "false",
@@ -57,8 +60,10 @@ export class PolymarketClient {
         liquidity_num_min: "1000",
       });
 
-      const response = await fetch(`${GAMMA_BASE}/markets?${params.toString()}`);
+      const response = await fetch(`${url}?${params.toString()}`);
       if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.error(`[PolymarketClient] fetchMarkets failed: HTTP ${response.status} ${response.statusText} | URL: ${url} | body: ${body.slice(0, 200)}`);
         throw new Error(`Gamma API error: ${response.status}`);
       }
       const allMarkets: PolymarketMarket[] = await response.json();
@@ -76,7 +81,9 @@ export class PolymarketClient {
 
       return allMarkets;
     } catch (error: any) {
-      console.error("[PolymarketClient] fetchMarkets error:", error.message);
+      if (!error.message?.includes("Gamma API error")) {
+        console.error(`[PolymarketClient] fetchMarkets network error: ${error.message} | URL: ${url}`);
+      }
       return [];
     }
   }
@@ -91,20 +98,34 @@ export class PolymarketClient {
       });
       return btcMarkets.sort((a, b) => (b.volume24hr || 0) - (a.volume24hr || 0));
     } catch (error: any) {
-      console.error("[PolymarketClient] fetchBTCMarkets error:", error.message);
+      console.error(`[PolymarketClient] fetchBTCMarkets error: ${error.message}`);
       return [];
     }
   }
 
   async fetchOrderBook(tokenId: string): Promise<OrderBookResponse | null> {
+    const url = `${CLOB_BASE}/book?token_id=${tokenId}`;
     try {
-      const response = await fetch(`${CLOB_BASE}/book?token_id=${tokenId}`);
+      const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`CLOB API error: ${response.status}`);
+        this.orderbookErrorCount++;
+        const now = Date.now();
+        if (now - this.lastOrderbookErrorLog > 30_000 || this.orderbookErrorCount <= 3) {
+          const body = await response.text().catch(() => "");
+          console.error(`[PolymarketClient] fetchOrderBook HTTP ${response.status}: tokenId=${tokenId.slice(0, 12)}... | errors=${this.orderbookErrorCount} | body: ${body.slice(0, 150)}`);
+          this.lastOrderbookErrorLog = now;
+        }
+        return null;
       }
+      this.orderbookErrorCount = 0;
       return await response.json();
     } catch (error: any) {
-      console.error("[PolymarketClient] fetchOrderBook error:", error.message);
+      this.orderbookErrorCount++;
+      const now = Date.now();
+      if (now - this.lastOrderbookErrorLog > 30_000 || this.orderbookErrorCount <= 3) {
+        console.error(`[PolymarketClient] fetchOrderBook network error: ${error.message} | tokenId=${tokenId.slice(0, 12)}... | errors=${this.orderbookErrorCount}`);
+        this.lastOrderbookErrorLog = now;
+      }
       return null;
     }
   }
@@ -112,10 +133,14 @@ export class PolymarketClient {
   async fetchMidpoint(tokenId: string): Promise<number | null> {
     try {
       const response = await fetch(`${CLOB_BASE}/midpoint?token_id=${tokenId}`);
-      if (!response.ok) return null;
+      if (!response.ok) {
+        console.warn(`[PolymarketClient] fetchMidpoint HTTP ${response.status}: tokenId=${tokenId.slice(0, 12)}...`);
+        return null;
+      }
       const data = await response.json();
       return parseFloat(data.mid);
-    } catch {
+    } catch (error: any) {
+      console.error(`[PolymarketClient] fetchMidpoint network error: ${error.message} | tokenId=${tokenId.slice(0, 12)}...`);
       return null;
     }
   }
@@ -123,10 +148,14 @@ export class PolymarketClient {
   async fetchPrice(tokenId: string, side: "BUY" | "SELL"): Promise<number | null> {
     try {
       const response = await fetch(`${CLOB_BASE}/price?token_id=${tokenId}&side=${side}`);
-      if (!response.ok) return null;
+      if (!response.ok) {
+        console.warn(`[PolymarketClient] fetchPrice HTTP ${response.status}: tokenId=${tokenId.slice(0, 12)}... side=${side}`);
+        return null;
+      }
       const data = await response.json();
       return parseFloat(data.price);
-    } catch {
+    } catch (error: any) {
+      console.error(`[PolymarketClient] fetchPrice network error: ${error.message} | tokenId=${tokenId.slice(0, 12)}... side=${side}`);
       return null;
     }
   }
@@ -134,10 +163,14 @@ export class PolymarketClient {
   async fetchSpread(tokenId: string): Promise<{ spread: number } | null> {
     try {
       const response = await fetch(`${CLOB_BASE}/spread?token_id=${tokenId}`);
-      if (!response.ok) return null;
+      if (!response.ok) {
+        console.warn(`[PolymarketClient] fetchSpread HTTP ${response.status}: tokenId=${tokenId.slice(0, 12)}...`);
+        return null;
+      }
       const data = await response.json();
       return { spread: parseFloat(data.spread) };
-    } catch {
+    } catch (error: any) {
+      console.error(`[PolymarketClient] fetchSpread network error: ${error.message} | tokenId=${tokenId.slice(0, 12)}...`);
       return null;
     }
   }
@@ -182,7 +215,7 @@ export class PolymarketClient {
       this.lastFetchTime = now;
       return this.cachedData;
     } catch (error: any) {
-      console.error("[PolymarketClient] fetchMarketData error:", error.message);
+      console.error(`[PolymarketClient] fetchMarketData error: ${error.message} | tokenId=${tokenId.slice(0, 12)}... | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
       return null;
     }
   }
@@ -198,7 +231,8 @@ export class PolymarketClient {
     try {
       const response = await fetch(`${CLOB_BASE}/time`);
       publicEndpointsOk = response.ok;
-    } catch {
+    } catch (error: any) {
+      console.error(`[PolymarketClient] Connection check failed: ${error.message}`);
       publicEndpointsOk = false;
     }
 

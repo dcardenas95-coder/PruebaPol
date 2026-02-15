@@ -13,9 +13,13 @@ export class MarketDataModule {
   private readonly WS_STALE_THRESHOLD = 15_000;
 
   setTokenId(tokenId: string | null): void {
+    const prevToken = this.currentTokenId;
     this.currentTokenId = tokenId;
     this.consecutiveErrors = 0;
     this.useSimulation = false;
+    if (prevToken !== tokenId) {
+      console.log(`[MarketData] Token changed: ${prevToken?.slice(0, 12) || "none"}... → ${tokenId?.slice(0, 12) || "none"}... | errors reset, simulation off`);
+    }
   }
 
   getTokenId(): string | null {
@@ -47,18 +51,24 @@ export class MarketDataModule {
     try {
       const data = await polymarketClient.fetchMarketData(this.currentTokenId);
       if (data) {
+        if (this.consecutiveErrors > 0) {
+          console.log(`[MarketData] Recovered after ${this.consecutiveErrors} consecutive errors | tokenId=${this.currentTokenId.slice(0, 12)}... | bid=${data.bestBid} ask=${data.bestAsk}`);
+        }
         this.consecutiveErrors = 0;
         this.lastData = data;
         return data;
       }
       this.consecutiveErrors++;
+      if (this.consecutiveErrors <= 3 || this.consecutiveErrors % 10 === 0) {
+        console.warn(`[MarketData] fetchMarketData returned null (${this.consecutiveErrors}/${this.MAX_ERRORS_BEFORE_FALLBACK} before fallback) | tokenId=${this.currentTokenId.slice(0, 12)}...`);
+      }
     } catch (error: any) {
       this.consecutiveErrors++;
-      console.error("[MarketData] Live data error:", error.message);
+      console.error(`[MarketData] Live data fetch error: ${error.message} | tokenId=${this.currentTokenId.slice(0, 12)}... | consecutiveErrors=${this.consecutiveErrors}/${this.MAX_ERRORS_BEFORE_FALLBACK} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
     }
 
     if (this.consecutiveErrors >= this.MAX_ERRORS_BEFORE_FALLBACK) {
-      console.warn("[MarketData] Too many errors, falling back to simulation");
+      console.warn(`[MarketData] FALLBACK TO SIMULATION: ${this.consecutiveErrors} consecutive errors exceeded threshold (${this.MAX_ERRORS_BEFORE_FALLBACK}) | tokenId=${this.currentTokenId.slice(0, 12)}... | wsActive=${this.isWsActive()}`);
       this.useSimulation = true;
     }
 

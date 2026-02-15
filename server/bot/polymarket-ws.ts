@@ -540,11 +540,21 @@ export class PolymarketWebSocket {
       console.log(`${prefix} ${message}`);
     }
 
+    const eventType = level === "error" ? "ERROR" : "INFO";
     try {
       await storage.createEvent({
-        type: "INFO",
+        type: eventType,
         message: `[WS] ${message}`,
-        data: { timestamp: ts, level },
+        data: {
+          timestamp: ts,
+          level,
+          marketConnected: this.marketConnected,
+          userConnected: this.userConnected,
+          marketReconnects: this.marketReconnects,
+          userReconnects: this.userReconnects,
+          subscribedMarketAssets: this.subscribedMarketAssets.length,
+          subscribedUserAssets: this.subscribedUserAssets.length,
+        },
         level,
       });
     } catch {}

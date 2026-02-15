@@ -104,11 +104,11 @@ export class LiveTradingClient {
       return { success: true };
     } catch (error: any) {
       this.initError = error.message;
-      console.error("[LiveTrading] Initialization error:", error.message);
+      console.error(`[LiveTrading] Initialization error: ${error.message} | stack: ${error.stack?.split("\n").slice(0, 3).join(" → ") || "none"}`);
       await storage.createEvent({
         type: "ERROR",
         message: `Live trading initialization failed: ${error.message}`,
-        data: { error: error.message },
+        data: { error: error.message, stack: error.stack?.slice(0, 300) },
         level: "error",
       });
       return { success: false, error: error.message };
@@ -153,7 +153,7 @@ export class LiveTradingClient {
         allowance: result?.allowance ?? "0",
       };
     } catch (error: any) {
-      console.error("[LiveTrading] Balance check error:", error.message);
+      console.error(`[LiveTrading] Balance check error: ${error.message} | tokenId=${tokenId.slice(0, 12)}...`);
       return null;
     }
   }
@@ -233,7 +233,7 @@ export class LiveTradingClient {
         total: (totalRaw / 1e6).toFixed(2),
       };
     } catch (error: any) {
-      console.error("[LiveTrading] On-chain USDC balance error:", error.message);
+      console.error(`[LiveTrading] On-chain USDC balance error: ${error.message} | wallet=${this.wallet?.address || "none"} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
       return null;
     }
   }
@@ -310,7 +310,7 @@ export class LiveTradingClient {
         transactID: response?.transactID,
       };
     } catch (error: any) {
-      console.error("[LiveTrading] Place order error:", error.message);
+      console.error(`[LiveTrading] Place order error: ${error.message} | side=${params.side} size=${params.size} price=${params.price} tokenId=${params.tokenId.slice(0, 12)}... negRisk=${params.negRisk} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
       await apiRateLimiter.recordError(error.message);
       await storage.createEvent({
         type: "ERROR",
@@ -340,7 +340,7 @@ export class LiveTradingClient {
 
       return { success: true };
     } catch (error: any) {
-      console.error("[LiveTrading] Cancel order error:", error.message);
+      console.error(`[LiveTrading] Cancel order error: ${error.message} | orderHash=${orderHash}`);
       return { success: false, errorMsg: error.message };
     }
   }
@@ -363,7 +363,7 @@ export class LiveTradingClient {
 
       return { success: true };
     } catch (error: any) {
-      console.error("[LiveTrading] Cancel all orders error:", error.message);
+      console.error(`[LiveTrading] Cancel all orders error: ${error.message} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
       return { success: false, errorMsg: error.message };
     }
   }
@@ -375,7 +375,7 @@ export class LiveTradingClient {
       const response = await this.client.getOpenOrders();
       return Array.isArray(response) ? response : [];
     } catch (error: any) {
-      console.error("[LiveTrading] Get open orders error:", error.message);
+      console.error(`[LiveTrading] Get open orders error: ${error.message} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
       return [];
     }
   }
@@ -393,7 +393,7 @@ export class LiveTradingClient {
       const found = allOrdersList.find((o: any) => o.id === orderHash);
       return found || { id: orderHash, status: "NOT_FOUND", size_matched: "0", original_size: "0" };
     } catch (error: any) {
-      console.error("[LiveTrading] Get order status error:", error.message);
+      console.error(`[LiveTrading] Get order status error: ${error.message} | orderHash=${orderHash}`);
       return null;
     }
   }
