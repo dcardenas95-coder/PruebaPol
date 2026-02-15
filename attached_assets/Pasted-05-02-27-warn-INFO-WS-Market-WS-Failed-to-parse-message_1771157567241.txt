@@ -1,0 +1,620 @@
+05:02:27
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T12:02:27.743Z"
+}
+05:02:04
+warn
+PNL_UPDATE
+Trade closed: $-1.5729 realized PnL
+{
+  "size": 5,
+  "marketId": "btc-5min-sim",
+  "exitPrice": 0.1806,
+  "entryPrice": 0.495,
+  "realizedPnl": -1.5729
+}
+05:01:58
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T12:01:57.742Z"
+}
+05:01:28
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T12:01:27.742Z"
+}
+05:00:57
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T12:00:57.935Z"
+}
+05:00:27
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T12:00:27.647Z"
+}
+04:59:57
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:59:57.644Z"
+}
+04:59:27
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:59:27.643Z"
+}
+04:56:12
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:12.273Z"
+}
+04:56:12
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+04:56:12
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:12.156Z"
+}
+04:56:10
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.579
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5789,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.579
+}
+04:56:10
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:10.036Z"
+}
+04:56:07
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:07.835Z"
+}
+04:56:06
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:06.435Z"
+}
+04:56:04
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:04.513Z"
+}
+04:56:02
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:02.635Z"
+}
+04:56:00
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:56:00.335Z"
+}
+04:55:58
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:58.033Z"
+}
+04:55:56
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:56.135Z"
+}
+04:55:54
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:54.735Z"
+}
+04:55:53
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:53.242Z"
+}
+04:55:52
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:52.937Z"
+}
+04:55:51
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:51.135Z"
+}
+04:55:49
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:49.035Z"
+}
+04:55:46
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:46.935Z"
+}
+04:55:45
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:45.424Z"
+}
+04:55:43
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:43.469Z"
+}
+04:55:42
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:42.035Z"
+}
+04:55:39
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:39.960Z"
+}
+04:55:38
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:38.336Z"
+}
+04:55:38
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.571
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5707,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.571
+}
+04:55:36
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:36.535Z"
+}
+04:55:35
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:35.038Z"
+}
+04:55:34
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.56
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5603,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.56
+}
+04:55:33
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:33.292Z"
+}
+04:55:31
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:31.935Z"
+}
+04:55:31
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.55
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5503,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.55
+}
+04:55:30
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:30.135Z"
+}
+04:55:28
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:28.666Z"
+}
+04:55:27
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.52
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5201,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.52
+}
+04:55:26
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:26.974Z"
+}
+04:55:25
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:25.440Z"
+}
+04:55:25
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.524
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5243,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.524
+}
+04:55:23
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:23.935Z"
+}
+04:55:23
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:23.239Z"
+}
+04:55:22
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:22.256Z"
+}
+04:55:20
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:20.748Z"
+}
+04:55:19
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:19.335Z"
+}
+04:55:18
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:17.836Z"
+}
+04:55:15
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:15.935Z"
+}
+04:55:13
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:13.870Z"
+}
+04:55:10
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:10.935Z"
+}
+04:55:08
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:08.435Z"
+}
+04:55:06
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:06.335Z"
+}
+04:55:04
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:04.362Z"
+}
+04:55:02
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:02.035Z"
+}
+04:55:00
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:55:00.235Z"
+}
+04:54:57
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:54:50.836Z"
+}
+04:54:55
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:54:55.634Z"
+}
+04:54:53
+warn
+INFO
+[WS] Market WS: Failed to parse message: Unexpected token 'I', "INVALID OPERATION" is not valid JSON
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:54:53.734Z"
+}
+04:54:52
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.51
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5097,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.51
+}
+04:54:48
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.481
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.4807,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.481
+}
+04:54:46
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:54:46.336Z"
+}
+04:54:45
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.474
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.4742,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.474
+}
+04:54:43
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:54:43.234Z"
+}
+04:54:42
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.518
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.518,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.518
+}
+04:54:40
+warn
+INFO
+[WS] User WS: Disconnected (code: 1006, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T11:54:40.135Z"
+}
+04:54:40
+warn
+INFO
+LIVE ORDER: SELL 10 @ $0.512
+{
+  "side": "SELL",
+  "size": 10,
+  "price": 0.5115999999999999,
+  "negRisk": false,
+  "tokenId": "btc-5min-sim",
+  "tickSize": "0.001",
+  "roundedSize": 10,
+  "roundedPrice": 0.512
+}

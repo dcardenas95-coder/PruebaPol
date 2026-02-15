@@ -393,7 +393,7 @@ function CycleTimeline({ cycle }: { cycle: CycleData }) {
         </div>
         <div className="flex items-center gap-2">
           {cycle.outcome && <Badge variant={cycle.outcome === "TP_HIT" || cycle.outcome === "FULL_EXIT" ? "default" : "secondary"} className="text-xs">{cycle.outcome}</Badge>}
-          {cycle.pnl !== null && (
+          {cycle.pnl != null && (
             <span className={`text-xs font-mono font-bold ${cycle.pnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
               {cycle.pnl >= 0 ? "+" : ""}{cycle.pnl.toFixed(4)}
             </span>
@@ -695,7 +695,18 @@ export default function DualEntry5m() {
         </CardContent>
       </Card>
 
-      {status?.currentCycle && <CycleTimeline cycle={status.currentCycle as any} />}
+      {status?.currentCycle && <CycleTimeline cycle={{
+        ...status.currentCycle,
+        id: (status.currentCycle as any).cycleId || (status.currentCycle as any).id || "",
+        pnl: (status.currentCycle as any).pnl ?? null,
+        outcome: (status.currentCycle as any).outcome ?? null,
+        winnerSide: (status.currentCycle as any).winnerSide ?? null,
+        createdAt: (status.currentCycle as any).createdAt ?? new Date().toISOString(),
+        isDryRun: (status.currentCycle as any).isDryRun ?? true,
+        windowStart: typeof status.currentCycle.windowStart === "object"
+          ? (status.currentCycle.windowStart as any).toISOString?.() ?? String(status.currentCycle.windowStart)
+          : String(status.currentCycle.windowStart),
+      } as CycleData} />}
 
       <Market5mPanel config={config} form={form} setForm={setForm} />
 
