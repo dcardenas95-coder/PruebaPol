@@ -643,18 +643,28 @@ function ApprovalCard() {
   const approveMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/trading/approve");
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("El servidor no respondió correctamente. Intenta recargar la página.");
+      }
       return res.json();
     },
     onSuccess: (data) => {
       if (data.success) {
         toast({ title: "Aprobaciones completadas", description: `${data.results.filter((r: any) => !r.skipped).length} nuevas, ${data.results.filter((r: any) => r.skipped).length} ya aprobadas` });
       } else {
-        toast({ title: "Error en aprobación", description: data.error, variant: "destructive" });
+        const errMsg = data.error?.includes("gas") || data.error?.includes("price")
+          ? "Gas price insuficiente en Polygon. Intenta de nuevo en unos minutos."
+          : data.error;
+        toast({ title: "Error en aprobación", description: errMsg, variant: "destructive" });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/trading/approval-status"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      const msg = err.message.includes("Unexpected token")
+        ? "Error de conexión con el servidor. Recarga la página e intenta de nuevo."
+        : err.message;
+      toast({ title: "Error", description: msg, variant: "destructive" });
     },
   });
 

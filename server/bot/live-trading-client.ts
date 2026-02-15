@@ -412,38 +412,52 @@ export class LiveTradingClient {
       const approvedNegExch = checkResults[4] as boolean;
       const approvedNegAdapter = checkResults[5] as boolean;
 
-      const approvalSteps: { name: string; check: () => boolean; execute: () => Promise<any> }[] = [
+      const approvalSteps: { name: string; check: () => boolean; execute: (overrides?: any) => Promise<any> }[] = [
         {
           name: "USDC → CTF Exchange",
           check: () => allowCtf.gt(highThreshold),
-          execute: () => usdc.approve(CTF_EXCHANGE, maxApproval),
+          execute: (ov) => usdc.approve(CTF_EXCHANGE, maxApproval, ov || {}),
         },
         {
           name: "USDC → Neg Risk Exchange",
           check: () => allowNeg.gt(highThreshold),
-          execute: () => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval),
+          execute: (ov) => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval, ov || {}),
         },
         {
           name: "USDC → Neg Risk Adapter",
           check: () => allowAdapter.gt(highThreshold),
-          execute: () => usdc.approve(NEG_RISK_ADAPTER, maxApproval),
+          execute: (ov) => usdc.approve(NEG_RISK_ADAPTER, maxApproval, ov || {}),
         },
         {
           name: "CTF → CTF Exchange",
           check: () => approvedCtfExch,
-          execute: () => ctf.setApprovalForAll(CTF_EXCHANGE, true),
+          execute: (ov) => ctf.setApprovalForAll(CTF_EXCHANGE, true, ov || {}),
         },
         {
           name: "CTF → Neg Risk Exchange",
           check: () => approvedNegExch,
-          execute: () => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true),
+          execute: (ov) => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true, ov || {}),
         },
         {
           name: "CTF → Neg Risk Adapter",
           check: () => approvedNegAdapter,
-          execute: () => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true),
+          execute: (ov) => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true, ov || {}),
         },
       ];
+
+      const feeData = await provider.getFeeData();
+      const minTipGwei = BigNumber.from("30000000000");
+      const gasOverrides: any = {};
+      if (feeData.maxFeePerGas) {
+        gasOverrides.maxFeePerGas = feeData.maxFeePerGas.mul(2);
+        gasOverrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas && feeData.maxPriorityFeePerGas.gt(minTipGwei)
+          ? feeData.maxPriorityFeePerGas
+          : minTipGwei;
+      } else if (feeData.gasPrice) {
+        const minGasPrice = BigNumber.from("50000000000");
+        gasOverrides.gasPrice = feeData.gasPrice.gt(minGasPrice) ? feeData.gasPrice : minGasPrice;
+      }
+      console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}`);
 
       for (const step of approvalSteps) {
         if (step.check()) {
@@ -452,7 +466,7 @@ export class LiveTradingClient {
         } else {
           console.log(`[LiveTrading] Approving ${step.name}...`);
           await delay(2000);
-          const tx = await step.execute();
+          const tx = await step.execute(gasOverrides);
           const receipt = await tx.wait();
           results.push({ step: step.name, txHash: receipt.transactionHash });
           console.log(`[LiveTrading] ${step.name} approved: ${receipt.transactionHash}`);
