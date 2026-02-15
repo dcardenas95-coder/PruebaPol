@@ -105,6 +105,7 @@ pm2 restart polymaker
 - **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (ultimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posicion, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posicion esta en zona de riesgo ($0.30-$0.70). Evaluar despues de tener datos de win rate con la estrategia actual.
 
 ## Recent Changes
+- 2026-02-15: **PnL Calculation Fix**: Added `tokenId` column to orders/fills/positions, positions now tracked per-token (tokenUp vs tokenDown separately) instead of per-market. Fixed HEDGE_LOCK exit logic to use position's own tokenId. Added market resolution settlement (settles at $1.00/$0.00 based on Oracle BTC direction). Fixed simulateFill to flip orderbook for tokenDown. Added orphan SELL detection/warning.
 - 2026-02-15: **Oracle-Informed Trading**: Binance BTC WebSocket oracle (`binance-oracle.ts`) with STRONG/WEAK signal detection ($30/$15 thresholds), integrated into Legacy FSM for directional entry decisions
 - 2026-02-15: **Progressive Position Sizing**: 3-level graduated sizing (L1: $1 for 1-20 trades, L2: $5 for 21-50 if WR>55%, L3: $10-20 for 51+ based on WR) via `progressive-sizer.ts`
 - 2026-02-15: **Stop-Loss Protection**: Per-trade 15% max loss, trailing stops from high-water mark, time-decay via `stop-loss-manager.ts`
