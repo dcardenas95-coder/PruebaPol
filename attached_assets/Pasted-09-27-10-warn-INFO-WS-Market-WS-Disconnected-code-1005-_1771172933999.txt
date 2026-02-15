@@ -1,0 +1,849 @@
+09:27:10
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:27:10.454Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:27:10
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:27:10.338Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:42
+warn
+INFO
+LIVE ORDER: BUY 1 @ $0.66
+{
+  "side": "BUY",
+  "size": 1,
+  "price": 0.66,
+  "negRisk": false,
+  "tokenId": "90218588267464759847684308958185669157130156896141373173746473711935116802620",
+  "tickSize": "0.01",
+  "roundedSize": 1,
+  "roundedPrice": 0.66
+}
+09:26:42
+warn
+INFO
+TEST LIVE: Starting end-to-end test with minimum order...
+{
+  "negRisk": false,
+  "tokenId": "90218588267464759847684308958185669157130156896141373173746473711935116802620",
+  "tickSize": "0.01"
+}
+09:26:39
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:39.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:35
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:35.140Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 14,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:30
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:30.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 13,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:26
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:26.151Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 12,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:21
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:21.821Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 11,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:17
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:17.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:13
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:13.319Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 9,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:09
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:09.142Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:05
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:05.033Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 7,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:26:00
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:26:00.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:25:56
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:56.339Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 5,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:25:52
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:52.139Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:25:47
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:47.639Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 3,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:25:43
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:43.340Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:25:38
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:34.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 2
+}
+09:25:38
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:34.039Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 2
+}
+09:25:03
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:25:03.285Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:25:03
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:25:03
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:24:32
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:24:32.640Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:24:32
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:24:32.250Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 14,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:24:02
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:23:59
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:23:59.369Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 13,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:23:59
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:23:59.250Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 12,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:23:26
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:23:26.958Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 11,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:23:26
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:23:26.834Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:22:54
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:22:54.281Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 9,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:22:54
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:22:54.012Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:22:22
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:22:21.840Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 7,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:22:21
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:22:21.632Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:21:49
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:21:49.339Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 5,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:21:48
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:21:48.850Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:21:16
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:21:16.255Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 3,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:21:16
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:21:16.149Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:20:47
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:20:40.140Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 2
+}
+09:20:45
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:20:37.440Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 2
+}
+09:20:02
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:19:02
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:17:50
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:49.339Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:17:49
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:49.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:17:18
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:18.140Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:17:13
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:13.939Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 14,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:17:09
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:09.640Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 13,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:17:05
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:05.240Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 12,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:17:00
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:17:00.639Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 11,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:56
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:56.439Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 10,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:51
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:51.540Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 9,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:46
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:46.640Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 8,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:42
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:41.840Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 7,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:33
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:33.440Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 6,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:27
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:27.239Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 5,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:16
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:16.240Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 4,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:07
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:07.940Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:16:07
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:16:07.739Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 2,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:15:34
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:15:34.240Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 1,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:15:34
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:15:34.039Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 0,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 2
+}
+09:15:01
+warn
+ORDER_CANCELLED
+All open orders cancelled
+{
+  "hadLiveOrders": false
+}
+09:14:42
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:14:42.406Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:14:42
+warn
+INFO
+[WS] Market WS: Received "INVALID OPERATION" (attempt 1/3). Reconnecting with backoff...
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:14:42.295Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": true,
+  "marketReconnects": 16,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
+09:14:10
+warn
+INFO
+[WS] Market WS: Disconnected (code: 1005, reason: )
+{
+  "level": "warn",
+  "timestamp": "2026-02-15T16:14:10.939Z",
+  "userConnected": false,
+  "userReconnects": 0,
+  "marketConnected": false,
+  "marketReconnects": 15,
+  "subscribedUserAssets": 0,
+  "subscribedMarketAssets": 1
+}
