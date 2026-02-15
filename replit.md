@@ -48,3 +48,66 @@ PolyMaker is a professional asymmetric market making bot designed for Polymarket
 - **Ethers.js**: Used by the `@polymarket/clob-client` SDK for wallet integration and transaction signing.
 - **QuickNode**: Premium RPC service used as a primary endpoint for blockchain interactions.
 - **Telegram API**: For sending critical and warning alerts via configurable bot tokens and chat IDs.
+
+## Deployment (Servidor DigitalOcean Toronto - 138.197.139.58)
+
+Siempre ejecutar estos comandos para desplegar cambios:
+
+```bash
+cd /home/polymaker/app
+git pull origin main
+npm install
+NODE_OPTIONS="--max-old-space-size=768" npm run build
+npm run db:push
+pm2 restart polymaker
+```
+
+- El servidor tiene 1GB de RAM, por eso se limita Node a 768MB con NODE_OPTIONS durante el build
+- PM2 ejecuta `dist/index.cjs` (archivo compilado), nunca el codigo fuente directamente
+- Logs: `pm2 logs polymaker` o en `/var/log/polymaker/`
+
+## API Endpoints
+
+- `GET /api/config` - Get bot configuration
+- `POST /api/config` - Update bot configuration
+- `GET /api/bot/status` - Bot status (state, active, paper mode)
+- `POST /api/bot/start` - Start bot
+- `POST /api/bot/stop` - Stop bot
+- `GET /api/orders` - List orders with pagination
+- `GET /api/positions` - Current positions
+- `GET /api/pnl` - PnL analytics
+- `GET /api/events` - Bot event log
+- `GET /api/markets/search` - Search Polymarket markets
+- `GET /api/connection/status` - Check Polymarket connection status (includes wallet info)
+- `POST /api/trading/init-live` - Initialize live trading client with wallet
+- `GET /api/trading/balance/:tokenId` - Check USDC balance for token
+- `POST /api/trading/test-live` - End-to-end test: place min order, verify, cancel
+- `GET /api/trading/pre-checks` - Pre-approval checks (POL balance, fund location, sigType)
+- `POST /api/trading/approve` - Execute all 6 token approvals
+- `GET /api/trading/approval-status` - Check current approval status
+- `GET /api/ws/health` - WebSocket connection health (status, reconnects, last message)
+- `GET /api/rate-limiter/status` - Rate limiter and circuit breaker status
+- `GET /api/health` - Full system health check (RPC, CLOB, WS, DB, rate limiter) with overall status
+- `GET /api/alerts` - Active and historical alerts with summary
+- `POST /api/alerts/telegram/configure` - Configure Telegram bot notifications (botToken, chatId)
+- `POST /api/alerts/telegram/test` - Send test message to Telegram
+- `GET /api/data-source/status` - Market data source status (websocket/rest_polling/simulation)
+
+## Key Files
+- `server/bot/health-monitor.ts` - System health checks (RPC, CLOB, WS, DB) with 30s periodic monitoring
+- `server/bot/alert-manager.ts` - Connection alerts with Telegram notification support
+- `server/bot/market-data.ts` - Market data with WebSocket primary + REST polling fallback
+- `server/bot/live-trading-client.ts` - CLOB client, approvals, order placement, balance checks
+- `server/bot/strategy-engine.ts` - FSM strategy engine with auto-rotation
+- `server/bot/order-manager.ts` - Order management, paper/live fills, position tracking
+
+## Future Plans
+- **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (ultimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posicion, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posicion esta en zona de riesgo ($0.30-$0.70). Evaluar despues de tener datos de win rate con la estrategia actual.
+
+## Recent Changes
+- 2026-02-15: Enhanced approval process: POL balance check before approvals (blocks if <0.05 POL), fund location verification (warns if USDC.e in wrong wallet for sigType), individual retry per approval step (3 attempts each), POLYMARKET_SIG_TYPE env var for explicit sigType override
+- 2026-02-15: Added /api/trading/pre-checks endpoint: returns POL balance, gas sufficiency, USDC.e location, sigType info before approvals
+- 2026-02-15: Updated ApprovalCard UI: shows pre-check panel (POL balance, sigType, USDC.e locations) with warnings for insufficient gas or misplaced funds
+- 2026-02-15: Added comprehensive health monitor, connection alerts with Telegram, REST polling fallback, System Health dashboard panel
+- 2026-02-15: Overhauled RPC infrastructure: 6 endpoints with rotation, caching, exponential backoff
+- 2026-02-15: Auto-detect signature type, enhanced WebSocket resilience, all 6 token approvals
