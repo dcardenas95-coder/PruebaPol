@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useState, useEffect } from "react";
 import {
   Activity,
   TrendingUp,
@@ -20,12 +19,6 @@ import {
   Cable,
   RefreshCw,
   Wallet,
-  Timer,
-  Target,
-  Zap,
-  RotateCw,
-  Clock,
-  FlaskConical,
 } from "lucide-react";
 import type { BotStatus } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -77,36 +70,13 @@ function StatCard({
   );
 }
 
-const CYCLE_STATES = ["IDLE", "ARMED", "ENTRY_WORKING", "PARTIAL_FILL", "HEDGED", "EXIT_WORKING", "DONE"];
-const CYCLE_STATE_LABELS: Record<string, string> = {
-  IDLE: "Idle",
-  ARMED: "Armado",
-  ENTRY_WORKING: "Entrada",
-  PARTIAL_FILL: "Parcial",
-  HEDGED: "Hedge",
-  EXIT_WORKING: "Salida",
-  DONE: "Hecho",
-  CLEANUP: "Limpieza",
-  FAILSAFE: "Failsafe",
-};
-const CYCLE_STATE_COLORS: Record<string, string> = {
-  IDLE: "bg-muted",
-  ARMED: "bg-yellow-500",
-  ENTRY_WORKING: "bg-blue-500",
-  PARTIAL_FILL: "bg-orange-500",
-  HEDGED: "bg-emerald-500",
-  EXIT_WORKING: "bg-purple-500",
-  DONE: "bg-muted-foreground",
-  CLEANUP: "bg-red-500",
-  FAILSAFE: "bg-red-600",
-};
-
-function CycleStateTimeline({ state }: { state: string }) {
-  const currentIndex = CYCLE_STATES.indexOf(state);
+function StateTimeline({ state }: { state: string }) {
+  const states = ["MAKING", "UNWIND", "CLOSE_ONLY", "HEDGE_LOCK", "DONE"];
+  const currentIndex = states.indexOf(state);
 
   return (
-    <div className="flex items-center gap-1 w-full" data-testid="cycle-state-timeline">
-      {CYCLE_STATES.map((s, i) => {
+    <div className="flex items-center gap-1 w-full" data-testid="fsm-state-timeline">
+      {states.map((s, i) => {
         const isActive = s === state;
         const isPast = i < currentIndex && currentIndex >= 0;
         return (
@@ -115,7 +85,7 @@ function CycleStateTimeline({ state }: { state: string }) {
               <div
                 className={`w-full h-1.5 rounded-full transition-colors ${
                   isActive
-                    ? (CYCLE_STATE_COLORS[s] || "bg-primary")
+                    ? "bg-primary"
                     : isPast
                       ? "bg-primary/40"
                       : "bg-muted"
@@ -128,43 +98,13 @@ function CycleStateTimeline({ state }: { state: string }) {
                     : "text-muted-foreground"
                 }`}
               >
-                {CYCLE_STATE_LABELS[s] || s}
+                {s}
               </span>
             </div>
           </div>
         );
       })}
     </div>
-  );
-}
-
-function NextWindowCountdown({ nextWindowStart }: { nextWindowStart: string | null }) {
-  const [countdown, setCountdown] = useState("");
-
-  useEffect(() => {
-    if (!nextWindowStart) {
-      setCountdown("—");
-      return;
-    }
-    const update = () => {
-      const diff = new Date(nextWindowStart).getTime() - Date.now();
-      if (diff <= 0) {
-        setCountdown("ahora");
-        return;
-      }
-      const min = Math.floor(diff / 60000);
-      const sec = Math.floor((diff % 60000) / 1000);
-      setCountdown(`${min}:${sec.toString().padStart(2, "0")}`);
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [nextWindowStart]);
-
-  return (
-    <span className="text-sm font-mono font-medium" data-testid="text-next-window">
-      {countdown}
-    </span>
   );
 }
 
@@ -271,17 +211,13 @@ export default function Overview() {
 
   const toggleMutation = useMutation({
     mutationFn: async () => {
-      const de5m = status?.dualEntry5m;
-      const isCurrentlyRunning = de5m?.isRunning || status?.config.isActive;
-      return apiRequest("PATCH", "/api/bot/config", { isActive: !isCurrentlyRunning });
+      const newState = !status?.config.isActive;
+      return apiRequest("PATCH", "/api/bot/config", { isActive: newState });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bot/config"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/strategies/dual-entry-5m/status"] });
-      const de5m = status?.dualEntry5m;
-      const wasRunning = de5m?.isRunning || status?.config.isActive;
-      toast({ title: wasRunning ? "Motor detenido" : "Motor iniciado" });
+      toast({ title: status?.config.isActive ? "Bot detenido" : "Bot iniciado" });
     },
   });
 
@@ -315,10 +251,6 @@ export default function Overview() {
   const config = status?.config;
   const dailyPnl = status?.dailyPnl ?? 0;
   const wsHealth = status?.wsHealth;
-  const de5m = status?.dualEntry5m;
-  const isEngineRunning = de5m?.isRunning ?? false;
-  const currentCycle = de5m?.currentCycle;
-  const cycleState = currentCycle?.state ?? "IDLE";
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -327,25 +259,8 @@ export default function Overview() {
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <div className="flex items-center gap-2 mt-0.5">
             <p className="text-sm text-muted-foreground">
-              Dual-Entry 5m Strategy
+              Asymmetric market making for Polymarket
             </p>
-            {de5m?.isDryRun ? (
-              <Badge variant="outline" className="text-xs gap-1" data-testid="badge-mode">
-                <FlaskConical className="w-3 h-3 text-yellow-500" />
-                Paper
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-xs gap-1 border-emerald-500/30" data-testid="badge-mode">
-                <Zap className="w-3 h-3 text-emerald-500" />
-                Live
-              </Badge>
-            )}
-            {de5m?.autoRotate && (
-              <Badge variant="outline" className="text-xs gap-1" data-testid="badge-auto-rotate">
-                <RotateCw className="w-3 h-3" />
-                Auto {de5m.asset?.toUpperCase()} {de5m.interval}
-              </Badge>
-            )}
             {status?.isLiveData ? (
               <Badge variant="outline" className="text-xs gap-1" data-testid="badge-live-connection">
                 <Wifi className="w-3 h-3 text-emerald-500" />
@@ -361,18 +276,18 @@ export default function Overview() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant={isEngineRunning ? "destructive" : "default"}
+            variant={config?.isActive ? "destructive" : "default"}
             onClick={() => toggleMutation.mutate()}
             disabled={toggleMutation.isPending || config?.killSwitchActive}
             data-testid="button-toggle-bot"
           >
-            {isEngineRunning ? (
+            {config?.isActive ? (
               <>
-                <Square className="w-4 h-4 mr-1.5" /> Detener
+                <Square className="w-4 h-4 mr-1.5" /> Stop Bot
               </>
             ) : (
               <>
-                <Play className="w-4 h-4 mr-1.5" /> Iniciar
+                <Play className="w-4 h-4 mr-1.5" /> Start Bot
               </>
             )}
           </Button>
@@ -393,54 +308,47 @@ export default function Overview() {
           <CardContent className="p-4 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-destructive">Kill Switch Activo</p>
+              <p className="text-sm font-medium text-destructive">Kill Switch Active</p>
               <p className="text-xs text-muted-foreground">
-                Todo el trading está detenido. Desactiva en Configuración para reanudar.
+                All trading is halted. Deactivate in Configuration to resume.
               </p>
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="Wallet Balance"
           value={walletBalance?.initialized ? `$${parseFloat(walletBalance.usdc || "0").toFixed(2)}` : "—"}
           icon={Wallet}
-          subtitle={walletBalance?.initialized ? `${walletBalance.walletAddress?.slice(0, 6)}...${walletBalance.walletAddress?.slice(-4)}` : "Wallet no conectada"}
+          subtitle={walletBalance?.initialized ? `${walletBalance.walletAddress?.slice(0, 6)}...${walletBalance.walletAddress?.slice(-4)}` : "Wallet not connected"}
           testId="card-wallet-balance"
         />
         <StatCard
-          title="PnL Diario"
+          title="Daily PnL"
           value={`$${dailyPnl.toFixed(2)}`}
           icon={dailyPnl >= 0 ? TrendingUp : TrendingDown}
           trend={dailyPnl > 0 ? "up" : dailyPnl < 0 ? "down" : "neutral"}
           testId="card-daily-pnl"
         />
         <StatCard
-          title="Ciclos Activos"
-          value={String(de5m?.activeCycles ?? 0)}
-          icon={Activity}
-          subtitle={currentCycle ? `Ciclo #${currentCycle.cycleNumber}` : "Sin ciclo"}
-          testId="card-active-cycles"
-        />
-        <StatCard
-          title="Órdenes Activas"
+          title="Active Orders"
           value={String(status?.activeOrders ?? 0)}
           icon={ShoppingCart}
           testId="card-active-orders"
         />
         <StatCard
-          title="Posiciones"
+          title="Open Positions"
           value={String(status?.openPositions ?? 0)}
           icon={ArrowUpDown}
           testId="card-open-positions"
         />
         <StatCard
-          title="Pérdidas Consecutivas"
+          title="Consecutive Losses"
           value={String(status?.consecutiveLosses ?? 0)}
           icon={BarChart3}
-          subtitle={`Máx: ${config?.maxConsecutiveLosses ?? 3}`}
+          subtitle={`Max: ${config?.maxConsecutiveLosses ?? 3}`}
           trend={
             (status?.consecutiveLosses ?? 0) >= (config?.maxConsecutiveLosses ?? 3)
               ? "down"
@@ -451,228 +359,193 @@ export default function Overview() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card data-testid="card-cycle-state">
+        <Card data-testid="card-fsm-state">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium">Estado del Ciclo</CardTitle>
+            <CardTitle className="text-sm font-medium">Strategy State Machine</CardTitle>
             <div className="flex items-center gap-1.5">
               <Activity
                 className={`w-3.5 h-3.5 ${
-                  isEngineRunning ? "text-emerald-500" : "text-muted-foreground"
+                  config?.isActive ? "text-emerald-500" : "text-muted-foreground"
                 }`}
               />
-              <Badge variant={isEngineRunning ? "default" : "secondary"} data-testid="badge-engine-state">
-                {isEngineRunning ? (currentCycle ? CYCLE_STATE_LABELS[cycleState] || cycleState : "Esperando") : "Detenido"}
+              <Badge variant={config?.isActive ? "default" : "secondary"}>
+                {config?.currentState || "STOPPED"}
               </Badge>
             </div>
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <CycleStateTimeline state={isEngineRunning ? cycleState : "IDLE"} />
+            <StateTimeline state={config?.currentState || "STOPPED"} />
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">Próxima Ventana</span>
-                <div className="flex items-center gap-1.5">
-                  <Timer className="w-3.5 h-3.5 text-muted-foreground" />
-                  <NextWindowCountdown nextWindowStart={de5m?.nextWindowStart ?? null} />
-                </div>
+                <span className="text-xs text-muted-foreground">Mode</span>
+                <span className="text-sm font-medium">
+                  {config?.isPaperTrading ? "Paper Trading" : "Live Trading"}
+                </span>
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs text-muted-foreground">Order Size</span>
                 <span className="text-sm font-mono font-medium">
-                  ${(de5m?.orderSize ?? 5).toFixed(2)}
+                  ${config?.orderSize?.toFixed(2) ?? "10.00"}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">Entry / TP</span>
+                <span className="text-xs text-muted-foreground">Min Spread</span>
                 <span className="text-sm font-mono font-medium">
-                  ¢{((de5m?.entryPrice ?? 0.50) * 100).toFixed(0)} → ¢{((de5m?.tpPrice ?? 0.55) * 100).toFixed(0)}
+                  {((config?.minSpread ?? 0.03) * 100).toFixed(1)}%
                 </span>
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">Scratch</span>
+                <span className="text-xs text-muted-foreground">Max Exposure</span>
                 <span className="text-sm font-mono font-medium">
-                  ¢{((de5m?.scratchPrice ?? 0.49) * 100).toFixed(0)}
+                  ${config?.maxNetExposure?.toFixed(2) ?? "100.00"}
                 </span>
               </div>
             </div>
-
-            {currentCycle && (
-              <div className="mt-4 pt-3 border-t">
-                <div className="text-xs font-medium text-muted-foreground mb-2">Ciclo Actual #{currentCycle.cycleNumber}</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className={`w-2 h-2 rounded-full ${currentCycle.yesFilled ? "bg-emerald-500" : "bg-muted"}`} />
-                    <span className="text-xs">YES {currentCycle.yesFilled ? `✓ ${currentCycle.yesFilledSize.toFixed(1)}` : "pending"}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className={`w-2 h-2 rounded-full ${currentCycle.noFilled ? "bg-emerald-500" : "bg-muted"}`} />
-                    <span className="text-xs">NO {currentCycle.noFilled ? `✓ ${currentCycle.noFilledSize.toFixed(1)}` : "pending"}</span>
-                  </div>
-                  {currentCycle.winnerSide && (
-                    <div className="col-span-2 flex items-center gap-1.5">
-                      <Target className="w-3 h-3 text-emerald-500" />
-                      <span className="text-xs">Winner: {currentCycle.winnerSide}</span>
-                      {currentCycle.tpFilled && <Badge variant="outline" className="text-[10px] ml-1">TP ✓</Badge>}
-                      {currentCycle.scratchFilled && <Badge variant="outline" className="text-[10px] ml-1">Scratch ✓</Badge>}
-                    </div>
-                  )}
-                  {currentCycle.pnl !== null && (
-                    <div className="col-span-2 flex items-center gap-1.5">
-                      <BarChart3 className={`w-3 h-3 ${(currentCycle.pnl ?? 0) >= 0 ? "text-emerald-500" : "text-red-500"}`} />
-                      <span className={`text-xs font-mono ${(currentCycle.pnl ?? 0) >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                        PnL: ${currentCycle.pnl?.toFixed(4)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
 
         <MarketDataPanel
           data={status?.marketData ?? null}
           isLive={status?.isLiveData}
-          marketSlug={de5m?.marketSlug || status?.config?.currentMarketSlug}
+          marketSlug={status?.config?.currentMarketSlug}
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card data-testid="card-strategy-params">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Parámetros de Estrategia</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Modo</span>
-                <span className="text-sm font-medium">
-                  {de5m?.isDryRun ? "Paper Trading" : "Live Trading"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Dual TP</span>
-                <span className="text-sm font-medium">
-                  {de5m?.dualTpMode ? "Activo" : "Inactivo"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Auto-Rotate</span>
-                <span className="text-sm font-medium">
-                  {de5m?.autoRotate ? `${de5m.asset?.toUpperCase()} ${de5m.interval}` : "Manual"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Mercado</span>
-                <span className="text-xs font-mono truncate max-w-[180px]" title={de5m?.marketSlug ?? ""}>
-                  {de5m?.marketSlug ? de5m.marketSlug.slice(0, 40) + (de5m.marketSlug.length > 40 ? "..." : "") : "—"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Max Daily Loss</span>
-                <span className="text-sm font-mono">
-                  ${config?.maxDailyLoss?.toFixed(0) ?? "50"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Max Exposure</span>
-                <span className="text-sm font-mono">
-                  ${config?.maxNetExposure?.toFixed(0) ?? "100"}
-                </span>
+      <Card data-testid="card-risk-overview">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Risk Parameters</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Max Net Exposure</span>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all"
+                    style={{ width: `${Math.min(100, ((status?.openPositions ?? 0) / (config?.maxNetExposure ?? 100)) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono">${config?.maxNetExposure?.toFixed(0) ?? "100"}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card data-testid="card-ws-health">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Cable className="w-4 h-4" />
-              WebSocket
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs font-medium">Market Feed</span>
-                  <span className="text-xs text-muted-foreground">
-                    {wsHealth?.marketSubscribedAssets?.length
-                      ? `${wsHealth.marketSubscribedAssets.length} asset(s)`
-                      : "Sin suscripciones"}
-                  </span>
-                  {wsHealth?.marketLastMessage ? (
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      Último: {formatWsTime(wsHealth.marketLastMessage)}
-                    </span>
-                  ) : null}
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Daily Loss Limit</span>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${dailyPnl < 0 ? "bg-destructive" : "bg-emerald-500"}`}
+                    style={{ width: `${Math.min(100, (Math.abs(dailyPnl) / (config?.maxDailyLoss ?? 50)) * 100)}%` }}
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  {(wsHealth?.marketReconnects ?? 0) > 0 && (
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                      <RefreshCw className="w-3 h-3" />
-                      {wsHealth?.marketReconnects}
-                    </span>
-                  )}
-                  <Badge
-                    variant={wsHealth?.marketConnected ? "default" : "secondary"}
-                    className="text-[10px]"
-                    data-testid="badge-ws-market"
-                  >
-                    {wsHealth?.marketConnected ? (
-                      <><Wifi className="w-3 h-3 mr-1" /> OK</>
-                    ) : (
-                      <><WifiOff className="w-3 h-3 mr-1" /> Off</>
-                    )}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs font-medium">User Feed</span>
-                  <span className="text-xs text-muted-foreground">
-                    {wsHealth?.userSubscribedAssets?.length
-                      ? `${wsHealth.userSubscribedAssets.length} asset(s)`
-                      : de5m?.isDryRun ? "Paper mode" : "Sin suscripciones"}
-                  </span>
-                  {wsHealth?.userLastMessage ? (
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      Último: {formatWsTime(wsHealth.userLastMessage)}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  {(wsHealth?.userReconnects ?? 0) > 0 && (
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                      <RefreshCw className="w-3 h-3" />
-                      {wsHealth?.userReconnects}
-                    </span>
-                  )}
-                  <Badge
-                    variant={wsHealth?.userConnected ? "default" : "secondary"}
-                    className="text-[10px]"
-                    data-testid="badge-ws-user"
-                  >
-                    {wsHealth?.userConnected ? (
-                      <><Wifi className="w-3 h-3 mr-1" /> OK</>
-                    ) : (
-                      <><WifiOff className="w-3 h-3 mr-1" /> Off</>
-                    )}
-                  </Badge>
-                </div>
+                <span className="text-xs font-mono">${config?.maxDailyLoss?.toFixed(0) ?? "50"}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Target Profit</span>
+              <span className="text-sm font-mono">
+                {((config?.targetProfitMin ?? 0.03) * 100).toFixed(1)}% - {((config?.targetProfitMax ?? 0.05) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Consec. Loss Stop</span>
+              <span className="text-sm font-mono">
+                {status?.consecutiveLosses ?? 0} / {config?.maxConsecutiveLosses ?? 3}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-ws-health">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Cable className="w-4 h-4" />
+            WebSocket Connections
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">Market Data Feed</span>
+                <span className="text-xs text-muted-foreground">
+                  {wsHealth?.marketSubscribedAssets?.length
+                    ? `${wsHealth.marketSubscribedAssets.length} asset(s)`
+                    : "No subscriptions"}
+                </span>
+                {wsHealth?.marketLastMessage ? (
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    Last: {formatWsTime(wsHealth.marketLastMessage)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {(wsHealth?.marketReconnects ?? 0) > 0 && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                    <RefreshCw className="w-3 h-3" />
+                    {wsHealth?.marketReconnects}
+                  </span>
+                )}
+                <Badge
+                  variant={wsHealth?.marketConnected ? "default" : "secondary"}
+                  className="text-[10px]"
+                  data-testid="badge-ws-market"
+                >
+                  {wsHealth?.marketConnected ? (
+                    <><Wifi className="w-3 h-3 mr-1" /> Connected</>
+                  ) : (
+                    <><WifiOff className="w-3 h-3 mr-1" /> Disconnected</>
+                  )}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">User Order Feed</span>
+                <span className="text-xs text-muted-foreground">
+                  {wsHealth?.userSubscribedAssets?.length
+                    ? `${wsHealth.userSubscribedAssets.length} asset(s)`
+                    : config?.isPaperTrading ? "Paper mode (disabled)" : "No subscriptions"}
+                </span>
+                {wsHealth?.userLastMessage ? (
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    Last: {formatWsTime(wsHealth.userLastMessage)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {(wsHealth?.userReconnects ?? 0) > 0 && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                    <RefreshCw className="w-3 h-3" />
+                    {wsHealth?.userReconnects}
+                  </span>
+                )}
+                <Badge
+                  variant={wsHealth?.userConnected ? "default" : "secondary"}
+                  className="text-[10px]"
+                  data-testid="badge-ws-user"
+                >
+                  {wsHealth?.userConnected ? (
+                    <><Wifi className="w-3 h-3 mr-1" /> Connected</>
+                  ) : (
+                    <><WifiOff className="w-3 h-3 mr-1" /> Disconnected</>
+                  )}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 function formatWsTime(ts: number): string {
   const diff = Math.floor((Date.now() - ts) / 1000);
-  if (diff < 5) return "ahora";
-  if (diff < 60) return `${diff}s`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  return `${Math.floor(diff / 3600)}h`;
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
 }
