@@ -7,6 +7,7 @@ import { polymarketWs } from "./polymarket-ws";
 import { apiRateLimiter } from "./rate-limiter";
 import type { BotConfig, MarketData, BotStatus } from "@shared/schema";
 import { format } from "date-fns";
+import { fetchCurrentIntervalMarket, type AssetType, type IntervalType } from "../strategies/dualEntry5m/market-5m-discovery";
 
 type BotState = "MAKING" | "UNWIND" | "CLOSE_ONLY" | "HEDGE_LOCK" | "DONE" | "STOPPED";
 
@@ -18,9 +19,10 @@ export class StrategyEngine {
   private startTime: number = Date.now();
   private cycleCount = 0;
   private marketCycleStart = 0;
-  private readonly MARKET_DURATION = 5 * 60 * 1000;
+  private MARKET_DURATION = 5 * 60 * 1000;
   private wsSetup = false;
   private lastDailyReset = new Date().toDateString();
+  private waitForMarketInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.marketData = new MarketDataModule();
@@ -29,7 +31,7 @@ export class StrategyEngine {
   }
 
   async start(): Promise<void> {
-    const config = await storage.getBotConfig();
+    let config = await storage.getBotConfig();
     if (!config) return;
 
     if (this.interval) {
@@ -38,6 +40,42 @@ export class StrategyEngine {
 
     this.startTime = Date.now();
     this.marketCycleStart = Date.now();
+
+    if (config.autoRotateInterval === "15m") {
+      this.MARKET_DURATION = 15 * 60 * 1000;
+    } else {
+      this.MARKET_DURATION = 5 * 60 * 1000;
+    }
+
+    if (config.autoRotate) {
+      const asset = (config.autoRotateAsset || "btc") as AssetType;
+      const interval = (config.autoRotateInterval || "5m") as IntervalType;
+      const market = await fetchCurrentIntervalMarket(asset, interval);
+      const minRemaining = interval === "15m" ? 90000 : 45000;
+      if (market && !market.closed && market.acceptingOrders && market.timeRemainingMs > minRemaining) {
+        config = { ...config };
+        (config as any).currentMarketId = market.tokenUp;
+        (config as any).currentMarketSlug = market.slug;
+        (config as any).currentMarketNegRisk = market.negRisk;
+        (config as any).currentMarketTickSize = String(market.tickSize);
+
+        await storage.updateBotConfig({
+          currentMarketId: market.tokenUp,
+          currentMarketSlug: market.slug,
+          currentMarketNegRisk: market.negRisk,
+          currentMarketTickSize: String(market.tickSize),
+        });
+
+        this.marketData.setTokenId(market.tokenUp);
+
+        await storage.createEvent({
+          type: "STATE_CHANGE",
+          message: `Auto-rotate: starting with ${market.slug} (${Math.floor(market.timeRemainingMs / 1000)}s remaining)`,
+          data: { slug: market.slug, tokenUp: market.tokenUp, asset, interval },
+          level: "info",
+        });
+      }
+    }
 
     if (config.currentMarketId) {
       this.marketData.setTokenId(config.currentMarketId);
@@ -149,6 +187,11 @@ export class StrategyEngine {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
+    }
+
+    if (this.waitForMarketInterval) {
+      clearInterval(this.waitForMarketInterval);
+      this.waitForMarketInterval = null;
     }
 
     polymarketWs.disconnectAll();
@@ -273,15 +316,24 @@ export class StrategyEngine {
       } else if (newState === "HEDGE_LOCK") {
         await this.executeHedgeLock(config, data);
       } else if (newState === "DONE") {
-        this.marketCycleStart = Date.now();
+        if (this.waitForMarketInterval) return;
+
         this.cycleCount++;
-        await storage.updateBotConfig({ currentState: "MAKING" });
-        await storage.createEvent({
-          type: "STATE_CHANGE",
-          message: `Market cycle ${this.cycleCount} completed, starting new cycle`,
-          data: { cycle: this.cycleCount },
-          level: "info",
-        });
+
+        await this.orderManager.cancelAllOrders();
+
+        if (config.autoRotate) {
+          await this.rotateToNextMarket(config);
+        } else {
+          this.marketCycleStart = Date.now();
+          await storage.updateBotConfig({ currentState: "MAKING" });
+          await storage.createEvent({
+            type: "STATE_CHANGE",
+            message: `Market cycle ${this.cycleCount} completed, starting new cycle (same market)`,
+            data: { cycle: this.cycleCount },
+            level: "info",
+          });
+        }
       }
     } catch (error: any) {
       await storage.createEvent({
@@ -294,7 +346,9 @@ export class StrategyEngine {
   }
 
   private calculateState(current: BotState, remainingMs: number): BotState {
-    if (current === "STOPPED" || current === "DONE") return current;
+    if (current === "STOPPED") return current;
+    if (current === "DONE") return current;
+    if (remainingMs <= 0) return "DONE";
     if (remainingMs <= 45000) return "HEDGE_LOCK";
     if (remainingMs <= 60000) return "CLOSE_ONLY";
     if (remainingMs <= 120000) return "UNWIND";
@@ -468,6 +522,156 @@ export class StrategyEngine {
     }
   }
 
+  private async rotateToNextMarket(config: BotConfig): Promise<void> {
+    const asset = (config.autoRotateAsset || "btc") as AssetType;
+    const interval = (config.autoRotateInterval || "5m") as IntervalType;
+
+    await storage.createEvent({
+      type: "STATE_CHANGE",
+      message: `Cycle ${this.cycleCount} done. Searching for next ${interval} ${asset.toUpperCase()} market...`,
+      data: { cycle: this.cycleCount, asset, interval },
+      level: "info",
+    });
+
+    const market = await fetchCurrentIntervalMarket(asset, interval);
+
+    if (!market) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `No active ${interval} ${asset.toUpperCase()} market found. Waiting for next window...`,
+        data: { asset, interval },
+        level: "warn",
+      });
+
+      await this.waitForNextMarket(config, asset, interval);
+      return;
+    }
+
+    if (market.closed || !market.acceptingOrders) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `Market ${market.slug} is closed/not accepting orders. Waiting for next window...`,
+        data: { slug: market.slug, closed: market.closed, acceptingOrders: market.acceptingOrders },
+        level: "warn",
+      });
+      await this.waitForNextMarket(config, asset, interval);
+      return;
+    }
+
+    const minRemaining = interval === "15m" ? 90000 : 45000;
+    if (market.timeRemainingMs < minRemaining) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `Market ${market.slug} has only ${Math.floor(market.timeRemainingMs / 1000)}s remaining. Waiting for next window...`,
+        data: { slug: market.slug, timeRemainingMs: market.timeRemainingMs },
+        level: "info",
+      });
+      await this.waitForNextMarket(config, asset, interval);
+      return;
+    }
+
+    await this.switchToMarket(config, market);
+  }
+
+  private async waitForNextMarket(config: BotConfig, asset: AssetType, interval: IntervalType): Promise<void> {
+    await storage.updateBotConfig({ currentState: "DONE" });
+
+    if (this.waitForMarketInterval) {
+      clearInterval(this.waitForMarketInterval);
+    }
+
+    this.waitForMarketInterval = setInterval(async () => {
+      try {
+        const freshConfig = await storage.getBotConfig();
+        if (!freshConfig || !freshConfig.isActive || freshConfig.killSwitchActive) {
+          if (this.waitForMarketInterval) clearInterval(this.waitForMarketInterval);
+          this.waitForMarketInterval = null;
+          return;
+        }
+
+        const market = await fetchCurrentIntervalMarket(asset, interval);
+        if (!market || market.closed || !market.acceptingOrders) return;
+
+        const minRemaining = interval === "15m" ? 90000 : 45000;
+        if (market.timeRemainingMs < minRemaining) return;
+
+        if (this.waitForMarketInterval) clearInterval(this.waitForMarketInterval);
+        this.waitForMarketInterval = null;
+        await this.switchToMarket(freshConfig, market);
+      } catch (err: any) {
+        console.error("[StrategyEngine] waitForNextMarket error:", err.message);
+      }
+    }, 5000);
+  }
+
+  private async switchToMarket(config: BotConfig, market: { slug: string; tokenUp: string; tokenDown: string; negRisk: boolean; tickSize: number; timeRemainingMs: number }): Promise<void> {
+    const prevSlug = config.currentMarketSlug;
+
+    await storage.updateBotConfig({
+      currentMarketId: market.tokenUp,
+      currentMarketSlug: market.slug,
+      currentMarketNegRisk: market.negRisk,
+      currentMarketTickSize: String(market.tickSize),
+      currentState: "MAKING",
+    });
+
+    this.marketData.setTokenId(market.tokenUp);
+    this.marketCycleStart = Date.now();
+
+    this.RECONNECT_WS(config, market);
+
+    await storage.createEvent({
+      type: "STATE_CHANGE",
+      message: `Rotated to new market: ${market.slug} (${Math.floor(market.timeRemainingMs / 1000)}s remaining). Cycle #${this.cycleCount + 1} starting.`,
+      data: {
+        prevMarket: prevSlug,
+        newMarket: market.slug,
+        tokenUp: market.tokenUp,
+        tokenDown: market.tokenDown,
+        timeRemainingMs: market.timeRemainingMs,
+        cycle: this.cycleCount + 1,
+      },
+      level: "info",
+    });
+  }
+
+  private RECONNECT_WS(config: BotConfig, market: { tokenUp: string; tokenDown: string }): void {
+    polymarketWs.disconnectAll();
+    this.wsSetup = false;
+
+    const assetIds = [market.tokenUp, market.tokenDown];
+    polymarketWs.connectMarket(assetIds);
+    this.marketData.setWsDataSource(polymarketWs);
+
+    polymarketWs.onMarketData((data) => {
+      this.marketData.updateFromWs(data);
+    });
+
+    polymarketWs.onRefreshAssetIds(async () => {
+      const freshConfig = await storage.getBotConfig();
+      if (freshConfig?.currentMarketId) {
+        return [freshConfig.currentMarketId];
+      }
+      return assetIds;
+    });
+
+    if (!config.isPaperTrading && liveTradingClient.isInitialized()) {
+      const creds = liveTradingClient.getApiCreds();
+      if (creds) {
+        polymarketWs.connectUser(assetIds, creds);
+        polymarketWs.onFill(async (fillData) => {
+          try {
+            await this.orderManager.handleWsFill(fillData);
+          } catch (err: any) {
+            console.error("[StrategyEngine] WS fill handler error:", err.message);
+          }
+        });
+      }
+    }
+
+    this.wsSetup = true;
+  }
+
   private async updateDailyPnl(pnl: number, isWin: boolean): Promise<void> {
     const today = format(new Date(), "yyyy-MM-dd");
     const existing = await storage.getPnlByDate(today);
@@ -534,6 +738,9 @@ export class StrategyEngine {
         currentMarketSlug: null,
         currentMarketNegRisk: false,
         currentMarketTickSize: "0.01",
+        autoRotate: false,
+        autoRotateAsset: "btc",
+        autoRotateInterval: "5m",
         updatedAt: new Date(),
       },
       marketData: this.marketData.getLastData(),

@@ -6,7 +6,7 @@ Professional asymmetric market making bot for Polymarket BTC binary markets. Con
 ## Architecture
 
 ### Frontend (React + Vite)
-- **Dashboard**: Overview with dual-entry 5m cycle state (IDLE→ARMED→ENTRY_WORKING→PARTIAL_FILL→HEDGED→EXIT_WORKING→DONE), next window countdown, auto-rotation status, WebSocket health
+- **Dashboard**: Overview with legacy FSM strategy (MAKING→UNWIND→CLOSE_ONLY→HEDGE_LOCK→DONE), auto-rotate controls, wallet balance, WebSocket health
 - **Orders**: Active and historical order management with cancel capabilities
 - **Positions**: Current inventory tracking with PnL
 - **PnL**: Performance analytics with cumulative and daily charts
@@ -14,8 +14,8 @@ Professional asymmetric market making bot for Polymarket BTC binary markets. Con
 - **Logs**: Structured event logging with filtering
 
 ### Backend (Express + TypeScript)
-- **Primary Strategy Engine**: Dual-Entry 5m engine with auto-rotation (replaces old FSM). Dashboard Start/Stop controls this engine.
-- **Legacy Strategy Engine**: FSM with states MAKING → UNWIND → CLOSE_ONLY → HEDGE_LOCK → DONE (still available, not primary)
+- **Primary Strategy Engine**: FSM with states MAKING → UNWIND → CLOSE_ONLY → HEDGE_LOCK → DONE, with auto-rotation to new 5m/15m markets on cycle completion. Dashboard Start/Stop controls this engine.
+- **Secondary Strategy Engine**: Dual-Entry 5m engine with separate auto-rotation (dedicated page at /strategies/dual-entry-5m)
 - **Order Manager**: Dual-mode - paper (simulated fills) and live (real CLOB orders). Idempotent with clientOrderId, position tracking on fills, order timeout system
 - **Risk Manager**: Max exposure, daily loss limits, consecutive loss stops, proximity alerts (80% exposure, 70% loss)
 - **Live Trading Client**: `@polymarket/clob-client` SDK integration for order signing, placement, cancellation, and balance checking
@@ -80,8 +80,9 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - Speaks Spanish
 
 ## Recent Changes
-- 2026-02-15: Made dual-entry 5m engine the primary strategy (Dashboard Start/Stop now controls it)
-- 2026-02-15: Updated Overview dashboard to show dual-entry cycle states, next window countdown, auto-rotation status
+- 2026-02-15: Added auto-rotation to legacy FSM strategy - on DONE, discovers next 5m/15m market automatically and starts new cycle
+- 2026-02-15: Restored Overview to legacy FSM strategy display (MAKING→UNWIND→CLOSE_ONLY→HEDGE_LOCK→DONE) with auto-rotate controls
+- 2026-02-15: Added autoRotate, autoRotateAsset, autoRotateInterval fields to bot_config
 - 2026-02-15: Added DualEntry5mInfo to BotStatus type for unified status API
 - 2026-02-15: Fixed WebSocket INVALID OPERATION with resilient retry and asset ID refresh
 - 2026-02-13: Added rate limiter (8/sec, 100/min) and circuit breaker (5 errors → 30s pause)

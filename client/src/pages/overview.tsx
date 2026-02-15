@@ -19,7 +19,10 @@ import {
   Cable,
   RefreshCw,
   Wallet,
+  RotateCw,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { BotStatus } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -221,6 +224,17 @@ export default function Overview() {
     },
   });
 
+  const autoRotateMutation = useMutation({
+    mutationFn: async (updates: { autoRotate?: boolean; autoRotateAsset?: string; autoRotateInterval?: string }) => {
+      return apiRequest("PATCH", "/api/bot/config", updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/config"] });
+      toast({ title: "Auto-rotate updated" });
+    },
+  });
+
   const killSwitchMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", "/api/bot/kill-switch");
@@ -261,6 +275,12 @@ export default function Overview() {
             <p className="text-sm text-muted-foreground">
               Asymmetric market making for Polymarket
             </p>
+            {config?.autoRotate && (
+              <Badge variant="outline" className="text-xs gap-1" data-testid="badge-auto-rotate">
+                <RotateCw className="w-3 h-3 text-emerald-500" />
+                Auto {config.autoRotateAsset?.toUpperCase()} {config.autoRotateInterval}
+              </Badge>
+            )}
             {status?.isLiveData ? (
               <Badge variant="outline" className="text-xs gap-1" data-testid="badge-live-connection">
                 <Wifi className="w-3 h-3 text-emerald-500" />
@@ -400,6 +420,60 @@ export default function Overview() {
                   ${config?.maxNetExposure?.toFixed(2) ?? "100.00"}
                 </span>
               </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <RotateCw className={`w-3.5 h-3.5 ${config?.autoRotate ? "text-emerald-500" : "text-muted-foreground"}`} />
+                  <span className="text-xs font-medium">Auto-Rotate 5m Markets</span>
+                </div>
+                <Switch
+                  checked={config?.autoRotate ?? false}
+                  onCheckedChange={(checked) => autoRotateMutation.mutate({ autoRotate: checked })}
+                  disabled={autoRotateMutation.isPending}
+                  data-testid="switch-auto-rotate"
+                />
+              </div>
+              {config?.autoRotate && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground">Asset</span>
+                    <Select
+                      value={config.autoRotateAsset ?? "btc"}
+                      onValueChange={(val) => autoRotateMutation.mutate({ autoRotateAsset: val })}
+                    >
+                      <SelectTrigger className="h-8 text-xs" data-testid="select-auto-rotate-asset">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="btc">BTC</SelectItem>
+                        <SelectItem value="eth">ETH</SelectItem>
+                        <SelectItem value="sol">SOL</SelectItem>
+                        <SelectItem value="xrp">XRP</SelectItem>
+                        <SelectItem value="doge">DOGE</SelectItem>
+                        <SelectItem value="bnb">BNB</SelectItem>
+                        <SelectItem value="link">LINK</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground">Interval</span>
+                    <Select
+                      value={config.autoRotateInterval ?? "5m"}
+                      onValueChange={(val) => autoRotateMutation.mutate({ autoRotateInterval: val })}
+                    >
+                      <SelectTrigger className="h-8 text-xs" data-testid="select-auto-rotate-interval">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5m">5 minutes</SelectItem>
+                        <SelectItem value="15m">15 minutes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
