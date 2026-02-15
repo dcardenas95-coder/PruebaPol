@@ -80,6 +80,11 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - Speaks Spanish
 
 ## Recent Changes
+- 2026-02-15: Fixed market timing alignment - FSM states now sync to actual Polymarket market boundaries using epoch-based interval calculation
+- 2026-02-15: Aggressive liquidation in HEDGE_LOCK (last 45s) - cancels all orders and crosses spread to force position exit before market determination
+- 2026-02-15: Added countdown timer to Market Data panel showing time remaining with color-coded progress bar and expected state label
+- 2026-02-15: Added marketRemainingMs and marketDurationMs to BotStatus API response
+- 2026-02-15: State transition events now include remaining time for debugging
 - 2026-02-15: Added auto-rotation to legacy FSM strategy - on DONE, discovers next 5m/15m market automatically and starts new cycle
 - 2026-02-15: Restored Overview to legacy FSM strategy display (MAKING→UNWIND→CLOSE_ONLY→HEDGE_LOCK→DONE) with auto-rotate controls
 - 2026-02-15: Added autoRotate, autoRotateAsset, autoRotateInterval fields to bot_config

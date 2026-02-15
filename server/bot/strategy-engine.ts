@@ -30,6 +30,26 @@ export class StrategyEngine {
     this.riskManager = new RiskManager();
   }
 
+  private alignCycleStartToMarketBoundary(): void {
+    const nowMs = Date.now();
+    const nowSec = Math.floor(nowMs / 1000);
+    const intervalSec = this.MARKET_DURATION / 1000;
+    const elapsedInCurrentInterval = (nowSec % intervalSec) * 1000;
+    this.marketCycleStart = nowMs - elapsedInCurrentInterval;
+    console.log(`[StrategyEngine] Aligned cycle start to market boundary: elapsed=${Math.floor(elapsedInCurrentInterval / 1000)}s, remaining=${Math.floor((this.MARKET_DURATION - elapsedInCurrentInterval) / 1000)}s`);
+  }
+
+  private alignCycleStartFromTimeRemaining(timeRemainingMs: number): void {
+    this.marketCycleStart = Date.now() - (this.MARKET_DURATION - timeRemainingMs);
+    console.log(`[StrategyEngine] Aligned cycle start from API timeRemaining: remaining=${Math.floor(timeRemainingMs / 1000)}s`);
+  }
+
+  getMarketRemainingMs(): number {
+    if (this.marketCycleStart === 0) return 0;
+    const elapsed = Date.now() - this.marketCycleStart;
+    return Math.max(0, this.MARKET_DURATION - elapsed);
+  }
+
   async start(): Promise<void> {
     let config = await storage.getBotConfig();
     if (!config) return;
@@ -39,7 +59,6 @@ export class StrategyEngine {
     }
 
     this.startTime = Date.now();
-    this.marketCycleStart = Date.now();
 
     if (config.autoRotateInterval === "15m") {
       this.MARKET_DURATION = 15 * 60 * 1000;
@@ -67,6 +86,7 @@ export class StrategyEngine {
         });
 
         this.marketData.setTokenId(market.tokenUp);
+        this.alignCycleStartFromTimeRemaining(market.timeRemainingMs);
 
         await storage.createEvent({
           type: "STATE_CHANGE",
@@ -74,7 +94,11 @@ export class StrategyEngine {
           data: { slug: market.slug, tokenUp: market.tokenUp, asset, interval },
           level: "info",
         });
+      } else {
+        this.alignCycleStartToMarketBoundary();
       }
+    } else {
+      this.alignCycleStartToMarketBoundary();
     }
 
     if (config.currentMarketId) {
@@ -325,12 +349,12 @@ export class StrategyEngine {
         if (config.autoRotate) {
           await this.rotateToNextMarket(config);
         } else {
-          this.marketCycleStart = Date.now();
+          this.alignCycleStartToMarketBoundary();
           await storage.updateBotConfig({ currentState: "MAKING" });
           await storage.createEvent({
             type: "STATE_CHANGE",
-            message: `Market cycle ${this.cycleCount} completed, starting new cycle (same market)`,
-            data: { cycle: this.cycleCount },
+            message: `Market cycle ${this.cycleCount} completed, starting new cycle (same market). Remaining: ${Math.floor(this.getMarketRemainingMs() / 1000)}s`,
+            data: { cycle: this.cycleCount, remainingMs: this.getMarketRemainingMs() },
             level: "info",
           });
         }
@@ -356,11 +380,12 @@ export class StrategyEngine {
   }
 
   private async transitionState(from: BotState, to: BotState): Promise<void> {
+    const remainingMs = this.getMarketRemainingMs();
     await storage.updateBotConfig({ currentState: to });
     await storage.createEvent({
       type: "STATE_CHANGE",
-      message: `State transition: ${from} -> ${to}`,
-      data: { from, to },
+      message: `State transition: ${from} -> ${to} (${Math.floor(remainingMs / 1000)}s remaining)`,
+      data: { from, to, remainingMs },
       level: "info",
     });
 
@@ -493,8 +518,9 @@ export class StrategyEngine {
 
   private async executeHedgeLock(config: BotConfig, data: MarketData): Promise<void> {
     const positions = await storage.getPositions();
-    const activeOrders = await this.orderManager.getActiveOrders();
-    if (activeOrders.length >= 2) return;
+    const openPositions = positions.filter(p => p.size > 0);
+
+    if (openPositions.length === 0) return;
 
     const tokenId = config.currentMarketId || "";
     const negRisk = config.currentMarketNegRisk ?? false;
@@ -504,23 +530,51 @@ export class StrategyEngine {
       return;
     }
 
-    for (const pos of positions) {
-      if (pos.size > 0) {
-        const hedgePrice = pos.side === "BUY"
-          ? data.bestAsk - 0.005
-          : data.bestBid + 0.005;
+    await this.orderManager.cancelAllOrders();
 
-        await this.orderManager.placeOrder({
-          marketId: pos.marketId,
-          tokenId,
-          side: pos.side === "BUY" ? "SELL" : "BUY",
-          price: Math.max(0.01, hedgePrice),
-          size: pos.size,
-          isPaperTrade: config.isPaperTrading,
-          negRisk,
-          tickSize,
-        });
+    const remainingMs = this.getMarketRemainingMs();
+
+    for (const pos of openPositions) {
+      const exitSide = pos.side === "BUY" ? "SELL" : "BUY";
+      let exitPrice: number;
+
+      if (pos.side === "BUY") {
+        if (remainingMs <= 20000) {
+          exitPrice = data.bestBid - 0.01;
+        } else if (remainingMs <= 30000) {
+          exitPrice = data.bestBid - 0.005;
+        } else {
+          exitPrice = data.bestBid;
+        }
+      } else {
+        if (remainingMs <= 20000) {
+          exitPrice = data.bestAsk + 0.01;
+        } else if (remainingMs <= 30000) {
+          exitPrice = data.bestAsk + 0.005;
+        } else {
+          exitPrice = data.bestAsk;
+        }
       }
+
+      exitPrice = Math.max(0.01, Math.min(0.99, exitPrice));
+
+      await storage.createEvent({
+        type: "INFO",
+        message: `[HEDGE_LOCK] Force-exiting ${pos.side} position: ${pos.size} @ $${exitPrice.toFixed(4)} (${Math.floor(remainingMs / 1000)}s left)`,
+        data: { side: exitSide, price: exitPrice, size: pos.size, remainingMs },
+        level: "warn",
+      });
+
+      await this.orderManager.placeOrder({
+        marketId: pos.marketId,
+        tokenId,
+        side: exitSide,
+        price: exitPrice,
+        size: pos.size,
+        isPaperTrade: config.isPaperTrading,
+        negRisk,
+        tickSize,
+      });
     }
   }
 
@@ -618,7 +672,7 @@ export class StrategyEngine {
     });
 
     this.marketData.setTokenId(market.tokenUp);
-    this.marketCycleStart = Date.now();
+    this.alignCycleStartFromTimeRemaining(market.timeRemainingMs);
 
     this.RECONNECT_WS(config, market);
 
@@ -736,6 +790,8 @@ export class StrategyEngine {
       } catch (_) {}
     }
 
+    const remainingMs = this.getMarketRemainingMs();
+
     return {
       config: config || {
         id: "",
@@ -768,6 +824,8 @@ export class StrategyEngine {
       isLiveData,
       currentTokenId: this.marketData.getTokenId(),
       wsHealth: polymarketWs.getHealth(),
+      marketRemainingMs: remainingMs,
+      marketDurationMs: this.MARKET_DURATION,
     };
   }
 }

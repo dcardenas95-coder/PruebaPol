@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useState, useEffect } from "react";
 import {
   Activity,
   TrendingUp,
@@ -20,6 +21,7 @@ import {
   RefreshCw,
   Wallet,
   RotateCw,
+  Timer,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -111,7 +113,76 @@ function StateTimeline({ state }: { state: string }) {
   );
 }
 
-function MarketDataPanel({ data, isLive, marketSlug }: { data: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null; isLive?: boolean; marketSlug?: string | null }) {
+function MarketCountdown({ remainingMs, durationMs, currentState }: { remainingMs: number; durationMs: number; currentState?: string }) {
+  const [displayMs, setDisplayMs] = useState(remainingMs);
+
+  useEffect(() => {
+    setDisplayMs(remainingMs);
+  }, [remainingMs]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDisplayMs(prev => Math.max(0, prev - 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const totalSec = Math.floor(displayMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  const pct = durationMs > 0 ? Math.max(0, Math.min(100, (displayMs / durationMs) * 100)) : 0;
+
+  let barColor = "bg-emerald-500";
+  let textColor = "text-emerald-500";
+  if (totalSec <= 45) {
+    barColor = "bg-red-500";
+    textColor = "text-red-500";
+  } else if (totalSec <= 60) {
+    barColor = "bg-orange-500";
+    textColor = "text-orange-500";
+  } else if (totalSec <= 120) {
+    barColor = "bg-yellow-500";
+    textColor = "text-yellow-500";
+  }
+
+  let stateLabel = "";
+  if (totalSec <= 0) stateLabel = "DONE";
+  else if (totalSec <= 45) stateLabel = "HEDGE_LOCK";
+  else if (totalSec <= 60) stateLabel = "CLOSE_ONLY";
+  else if (totalSec <= 120) stateLabel = "UNWIND";
+  else stateLabel = "MAKING";
+
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="market-countdown">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Timer className={`w-3.5 h-3.5 ${textColor}`} />
+          <span className="text-xs text-muted-foreground">Market Timer</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={`text-[10px] ${textColor}`} data-testid="badge-timer-state">
+            {stateLabel}
+          </Badge>
+          <span className={`text-lg font-mono font-bold tabular-nums ${textColor}`} data-testid="text-countdown">
+            {min}:{sec.toString().padStart(2, "0")}
+          </span>
+        </div>
+      </div>
+      <div className="w-full h-2 bg-muted rounded-full overflow-hidden" data-testid="countdown-bar">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+        <span>0:00</span>
+        <span>{Math.floor(durationMs / 60000)}:00</span>
+      </div>
+    </div>
+  );
+}
+
+function MarketDataPanel({ data, isLive, marketSlug, remainingMs, durationMs, currentState }: { data: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null; isLive?: boolean; marketSlug?: string | null; remainingMs?: number; durationMs?: number; currentState?: string }) {
   if (!data) {
     return (
       <Card>
@@ -143,7 +214,10 @@ function MarketDataPanel({ data, isLive, marketSlug }: { data: { bestBid: number
           {isLive ? "LIVE" : "Simulated"}
         </Badge>
       </CardHeader>
-      <CardContent className="p-4 pt-0">
+      <CardContent className="p-4 pt-0 space-y-4">
+        {remainingMs !== undefined && durationMs !== undefined && durationMs > 0 && (
+          <MarketCountdown remainingMs={remainingMs} durationMs={durationMs} currentState={currentState} />
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground">Best Bid</span>
@@ -482,6 +556,9 @@ export default function Overview() {
           data={status?.marketData ?? null}
           isLive={status?.isLiveData}
           marketSlug={status?.config?.currentMarketSlug}
+          remainingMs={status?.marketRemainingMs}
+          durationMs={status?.marketDurationMs}
+          currentState={status?.config?.currentState ?? undefined}
         />
       </div>
 

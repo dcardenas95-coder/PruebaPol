@@ -367,4 +367,6 @@ export type BotStatus = {
   currentTokenId?: string | null;
   wsHealth?: WsConnectionHealth;
   dualEntry5m?: DualEntry5mInfo;
+  marketRemainingMs?: number;
+  marketDurationMs?: number;
 };
