@@ -653,9 +653,14 @@ function ApprovalCard() {
       if (data.success) {
         toast({ title: "Aprobaciones completadas", description: `${data.results.filter((r: any) => !r.skipped).length} nuevas, ${data.results.filter((r: any) => r.skipped).length} ya aprobadas` });
       } else {
-        const errMsg = data.error?.includes("gas") || data.error?.includes("price")
-          ? "Gas price insuficiente en Polygon. Intenta de nuevo en unos minutos."
-          : data.error;
+        let errMsg = data.error || "Error desconocido";
+        if (data.error?.includes("gas") || data.error?.includes("price")) {
+          errMsg = "Gas price insuficiente en Polygon. Intenta de nuevo en unos minutos.";
+        } else if (data.error?.includes("could not detect network") || data.error?.includes("NETWORK_ERROR")) {
+          errMsg = "No se pudo conectar a la red Polygon. Los servidores RPC están saturados. Intenta de nuevo en 30 segundos.";
+        } else if (data.error?.includes("Too many requests") || data.error?.includes("rate limit")) {
+          errMsg = "Límite de solicitudes RPC alcanzado. Espera 30 segundos e intenta de nuevo.";
+        }
         toast({ title: "Error en aprobación", description: errMsg, variant: "destructive" });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/trading/approval-status"] });

@@ -41,7 +41,32 @@ function getPolygonProvider(): JsonRpcProvider {
     currentRpcIndex++;
     console.log(`[RPC] Rotating to endpoint ${currentRpcIndex}: ${POLYGON_RPC_ENDPOINTS[currentRpcIndex].slice(0, 40)}...`);
   }
-  return new JsonRpcProvider(POLYGON_RPC_ENDPOINTS[currentRpcIndex]);
+  return new JsonRpcProvider({
+    url: POLYGON_RPC_ENDPOINTS[currentRpcIndex],
+    timeout: 15000,
+  }, { chainId: CHAIN_ID, name: "matic" });
+}
+
+async function getWorkingProvider(): Promise<JsonRpcProvider> {
+  for (let i = 0; i < POLYGON_RPC_ENDPOINTS.length; i++) {
+    const idx = (currentRpcIndex + i) % POLYGON_RPC_ENDPOINTS.length;
+    try {
+      const provider = new JsonRpcProvider({
+        url: POLYGON_RPC_ENDPOINTS[idx],
+        timeout: 10000,
+      }, { chainId: CHAIN_ID, name: "matic" });
+      await provider.getBlockNumber();
+      currentRpcIndex = idx;
+      return provider;
+    } catch (err: any) {
+      console.log(`[RPC] Endpoint ${idx} (${POLYGON_RPC_ENDPOINTS[idx].slice(0, 30)}...) failed: ${err.message?.slice(0, 80)}`);
+    }
+  }
+  console.log(`[RPC] All endpoints failed, using default with static network`);
+  return new JsonRpcProvider({
+    url: POLYGON_RPC_ENDPOINTS[0],
+    timeout: 15000,
+  }, { chainId: CHAIN_ID, name: "matic" });
 }
 
 function markRpcError(): void {
@@ -61,17 +86,20 @@ async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 1500): Pr
   for (let i = 0; i < calls.length; i++) {
     if (i > 0) await delay(delayMs);
     let lastErr: Error | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         results.push(await calls[i]());
         lastErr = null;
         break;
       } catch (err: any) {
         lastErr = err;
-        if (err.message?.includes("Too many requests") || err.message?.includes("rate limit")) {
+        const isRateLimit = err.message?.includes("Too many requests") || err.message?.includes("rate limit");
+        const isNetworkError = err.message?.includes("could not detect network") || err.message?.includes("NETWORK_ERROR") || err.message?.includes("failed to meet quorum") || err.message?.includes("SERVER_ERROR");
+        if (isRateLimit || isNetworkError) {
           markRpcError();
-          console.log(`[RPC] Rate limited on call ${i}, waiting 3s before retry...`);
-          await delay(3000);
+          const waitTime = isNetworkError ? 2000 : 3000;
+          console.log(`[RPC] ${isNetworkError ? "Network error" : "Rate limited"} on call ${i} (attempt ${attempt + 1}), rotating and waiting ${waitTime}ms...`);
+          await delay(waitTime);
         } else {
           break;
         }
@@ -80,6 +108,35 @@ async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 1500): Pr
     if (lastErr) throw lastErr;
   }
   return results;
+}
+
+async function withProviderRetry<T>(
+  fn: (provider: JsonRpcProvider) => Promise<T>,
+  maxRetries = 3,
+): Promise<T> {
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const provider = attempt === 0 ? getPolygonProvider() : await getWorkingProvider();
+      return await fn(provider);
+    } catch (err: any) {
+      lastErr = err;
+      const isRetryable = err.message?.includes("Too many requests") ||
+        err.message?.includes("rate limit") ||
+        err.message?.includes("could not detect network") ||
+        err.message?.includes("NETWORK_ERROR") ||
+        err.message?.includes("SERVER_ERROR") ||
+        err.message?.includes("failed to meet quorum");
+      if (isRetryable && attempt < maxRetries - 1) {
+        markRpcError();
+        console.log(`[RPC] Provider error (attempt ${attempt + 1}/${maxRetries}), rotating: ${err.message?.slice(0, 80)}`);
+        await delay(3000);
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw lastErr;
 }
 
 function getSignatureType(): number {
@@ -132,27 +189,45 @@ export class LiveTradingClient {
 
       console.log(`[LiveTrading] Initializing with wallet: ${walletAddress}`);
 
-      const sigType = getSignatureType();
+      const baseSigType = getSignatureType();
       const funder = getFunderAddress();
-      console.log(`[LiveTrading] Signature type: ${sigType}${funder ? `, funder: ${funder}` : " (EOA)"}`);
+      const sigTypesToTry = [baseSigType, ...[0, 1, 2].filter(s => s !== baseSigType)];
+      console.log(`[LiveTrading] Base signature type: ${baseSigType}${funder ? `, funder: ${funder}` : " (EOA)"}`);
 
-      const tempClient = new ClobClient(CLOB_HOST, CHAIN_ID, this.wallet, undefined, sigType, funder);
-
-      try {
-        this.creds = await tempClient.deriveApiKey();
-        console.log("[LiveTrading] Derived existing API key");
-      } catch {
-        console.log("[LiveTrading] Creating new API key...");
-        this.creds = await tempClient.createApiKey();
-        console.log("[LiveTrading] Created new API key");
+      let workingSigType = baseSigType;
+      for (const sigType of sigTypesToTry) {
+        try {
+          const tempClient = new ClobClient(CLOB_HOST, CHAIN_ID, this.wallet, undefined, sigType, funder);
+          try {
+            this.creds = await tempClient.deriveApiKey();
+            workingSigType = sigType;
+            console.log(`[LiveTrading] Derived existing API key (sigType=${sigType})`);
+            break;
+          } catch {
+            this.creds = await tempClient.createApiKey();
+            workingSigType = sigType;
+            console.log(`[LiveTrading] Created new API key (sigType=${sigType})`);
+            break;
+          }
+        } catch (err: any) {
+          console.log(`[LiveTrading] sigType=${sigType} failed for API key derivation: ${err.message?.slice(0, 80)}`);
+        }
       }
+
+      if (!this.creds) {
+        this.initError = "Could not derive or create API key with any signature type";
+        return { success: false, error: this.initError };
+      }
+
+      this.detectedSigType = workingSigType;
+      console.log(`[LiveTrading] Using signature type: ${workingSigType}`);
 
       this.client = new ClobClient(
         CLOB_HOST,
         CHAIN_ID,
         this.wallet,
         this.creds,
-        sigType,
+        workingSigType,
         funder,
       );
 
@@ -293,28 +368,28 @@ export class LiveTradingClient {
   async getOnChainUsdcBalance(): Promise<{ usdcE: string; usdcNative: string; total: string } | null> {
     if (!this.wallet) return null;
     try {
-      const provider = getPolygonProvider();
-      const address = await this.wallet.getAddress();
+      return await withProviderRetry(async (provider) => {
+        const address = await this.wallet!.getAddress();
+        const usdcEContract = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
+        const usdcNativeContract = new Contract(USDC_NATIVE_ADDRESS, ERC20_ABI, provider);
 
-      const usdcEContract = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
-      const usdcNativeContract = new Contract(USDC_NATIVE_ADDRESS, ERC20_ABI, provider);
+        const [balE, balNative] = await serialRpcCall([
+          () => usdcEContract.balanceOf(address).catch(() => BigInt(0)),
+          () => usdcNativeContract.balanceOf(address).catch(() => BigInt(0)),
+        ], 500);
 
-      const [balE, balNative] = await serialRpcCall([
-        () => usdcEContract.balanceOf(address).catch(() => BigInt(0)),
-        () => usdcNativeContract.balanceOf(address).catch(() => BigInt(0)),
-      ], 500);
+        const formatUsdc = (raw: any): string => {
+          const n = Number(raw) / 1e6;
+          return n.toFixed(2);
+        };
 
-      const formatUsdc = (raw: any): string => {
-        const n = Number(raw) / 1e6;
-        return n.toFixed(2);
-      };
-
-      const totalRaw = Number(balE) + Number(balNative);
-      return {
-        usdcE: formatUsdc(balE),
-        usdcNative: formatUsdc(balNative),
-        total: (totalRaw / 1e6).toFixed(2),
-      };
+        const totalRaw = Number(balE) + Number(balNative);
+        return {
+          usdcE: formatUsdc(balE),
+          usdcNative: formatUsdc(balNative),
+          total: (totalRaw / 1e6).toFixed(2),
+        };
+      });
     } catch (error: any) {
       if (error.message?.includes("Too many requests") || error.message?.includes("rate limit")) markRpcError();
       console.error(`[LiveTrading] On-chain USDC balance error: ${error.message} | wallet=${this.wallet?.address || "none"} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
@@ -332,41 +407,42 @@ export class LiveTradingClient {
   } | null> {
     if (!this.wallet) return null;
     try {
-      const provider = getPolygonProvider();
-      const address = await this.wallet.getAddress();
-      const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
-      const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, provider);
-      const zero = BigNumber.from(0);
+      return await withProviderRetry(async (provider) => {
+        const address = await this.wallet!.getAddress();
+        const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
+        const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, provider);
+        const zero = BigNumber.from(0);
 
-      const results = await serialRpcCall<BigNumber | boolean>([
-        () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
-        () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
-        () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
-        () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
-        () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
-        () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
-      ], 800);
+        const results = await serialRpcCall<BigNumber | boolean>([
+          () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
+          () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
+          () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
+          () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
+          () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
+          () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
+        ], 800);
 
-      const allowCtf = results[0] as BigNumber;
-      const allowNeg = results[1] as BigNumber;
-      const allowAdapter = results[2] as BigNumber;
-      const approvedCtf = results[3] as boolean;
-      const approvedNegExch = results[4] as boolean;
-      const approvedNegAdapter = results[5] as boolean;
+        const allowCtf = results[0] as BigNumber;
+        const allowNeg = results[1] as BigNumber;
+        const allowAdapter = results[2] as BigNumber;
+        const approvedCtf = results[3] as boolean;
+        const approvedNegExch = results[4] as boolean;
+        const approvedNegAdapter = results[5] as boolean;
 
-      const formatAllowance = (val: BigNumber): string => {
-        if (val.gt(BigNumber.from("1000000000000"))) return "999999999999.00";
-        return (parseFloat(val.toString()) / 1e6).toFixed(2);
-      };
+        const formatAllowance = (val: BigNumber): string => {
+          if (val.gt(BigNumber.from("1000000000000"))) return "999999999999.00";
+          return (parseFloat(val.toString()) / 1e6).toFixed(2);
+        };
 
-      return {
-        usdcCtfExchange: formatAllowance(allowCtf),
-        usdcNegRiskExchange: formatAllowance(allowNeg),
-        usdcNegRiskAdapter: formatAllowance(allowAdapter),
-        ctfExchange: approvedCtf,
-        ctfNegRiskExchange: approvedNegExch,
-        ctfNegRiskAdapter: approvedNegAdapter,
-      };
+        return {
+          usdcCtfExchange: formatAllowance(allowCtf),
+          usdcNegRiskExchange: formatAllowance(allowNeg),
+          usdcNegRiskAdapter: formatAllowance(allowAdapter),
+          ctfExchange: approvedCtf,
+          ctfNegRiskExchange: approvedNegExch,
+          ctfNegRiskAdapter: approvedNegAdapter,
+        };
+      });
     } catch (error: any) {
       console.error(`[LiveTrading] Approval status error: ${error.message}`);
       return null;
@@ -383,95 +459,96 @@ export class LiveTradingClient {
     }
 
     const results: { step: string; txHash?: string; error?: string; skipped?: boolean }[] = [];
-    const provider = getPolygonProvider();
-    const signer = this.wallet.connect(provider);
-    const address = await this.wallet.getAddress();
-    const maxApproval = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
     try {
-      const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, signer);
-      const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, signer);
+      await withProviderRetry(async (provider) => {
+        const signer = this.wallet!.connect(provider);
+        const address = await this.wallet!.getAddress();
+        const maxApproval = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+        const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, signer);
+        const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, signer);
 
-      const zero = BigNumber.from(0);
-      const highThreshold = BigNumber.from("1000000000000");
+        const zero = BigNumber.from(0);
+        const highThreshold = BigNumber.from("1000000000000");
 
-      console.log("[LiveTrading] Checking current approval status (serialized)...");
-      const checkResults = await serialRpcCall<BigNumber | boolean>([
-        () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
-        () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
-        () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
-        () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
-        () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
-        () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
-      ], 1000);
+        console.log("[LiveTrading] Checking current approval status (serialized)...");
+        const checkResults = await serialRpcCall<BigNumber | boolean>([
+          () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
+          () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
+          () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
+          () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
+          () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
+          () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
+        ], 1000);
 
-      const allowCtf = checkResults[0] as BigNumber;
-      const allowNeg = checkResults[1] as BigNumber;
-      const allowAdapter = checkResults[2] as BigNumber;
-      const approvedCtfExch = checkResults[3] as boolean;
-      const approvedNegExch = checkResults[4] as boolean;
-      const approvedNegAdapter = checkResults[5] as boolean;
+        const allowCtf = checkResults[0] as BigNumber;
+        const allowNeg = checkResults[1] as BigNumber;
+        const allowAdapter = checkResults[2] as BigNumber;
+        const approvedCtfExch = checkResults[3] as boolean;
+        const approvedNegExch = checkResults[4] as boolean;
+        const approvedNegAdapter = checkResults[5] as boolean;
 
-      const approvalSteps: { name: string; check: () => boolean; execute: (overrides?: any) => Promise<any> }[] = [
-        {
-          name: "USDC → CTF Exchange",
-          check: () => allowCtf.gt(highThreshold),
-          execute: (ov) => usdc.approve(CTF_EXCHANGE, maxApproval, ov || {}),
-        },
-        {
-          name: "USDC → Neg Risk Exchange",
-          check: () => allowNeg.gt(highThreshold),
-          execute: (ov) => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval, ov || {}),
-        },
-        {
-          name: "USDC → Neg Risk Adapter",
-          check: () => allowAdapter.gt(highThreshold),
-          execute: (ov) => usdc.approve(NEG_RISK_ADAPTER, maxApproval, ov || {}),
-        },
-        {
-          name: "CTF → CTF Exchange",
-          check: () => approvedCtfExch,
-          execute: (ov) => ctf.setApprovalForAll(CTF_EXCHANGE, true, ov || {}),
-        },
-        {
-          name: "CTF → Neg Risk Exchange",
-          check: () => approvedNegExch,
-          execute: (ov) => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true, ov || {}),
-        },
-        {
-          name: "CTF → Neg Risk Adapter",
-          check: () => approvedNegAdapter,
-          execute: (ov) => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true, ov || {}),
-        },
-      ];
+        const approvalSteps: { name: string; check: () => boolean; execute: (overrides?: any) => Promise<any> }[] = [
+          {
+            name: "USDC → CTF Exchange",
+            check: () => allowCtf.gt(highThreshold),
+            execute: (ov) => usdc.approve(CTF_EXCHANGE, maxApproval, ov || {}),
+          },
+          {
+            name: "USDC → Neg Risk Exchange",
+            check: () => allowNeg.gt(highThreshold),
+            execute: (ov) => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval, ov || {}),
+          },
+          {
+            name: "USDC → Neg Risk Adapter",
+            check: () => allowAdapter.gt(highThreshold),
+            execute: (ov) => usdc.approve(NEG_RISK_ADAPTER, maxApproval, ov || {}),
+          },
+          {
+            name: "CTF → CTF Exchange",
+            check: () => approvedCtfExch,
+            execute: (ov) => ctf.setApprovalForAll(CTF_EXCHANGE, true, ov || {}),
+          },
+          {
+            name: "CTF → Neg Risk Exchange",
+            check: () => approvedNegExch,
+            execute: (ov) => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true, ov || {}),
+          },
+          {
+            name: "CTF → Neg Risk Adapter",
+            check: () => approvedNegAdapter,
+            execute: (ov) => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true, ov || {}),
+          },
+        ];
 
-      const feeData = await provider.getFeeData();
-      const minTipGwei = BigNumber.from("30000000000");
-      const gasOverrides: any = {};
-      if (feeData.maxFeePerGas) {
-        gasOverrides.maxFeePerGas = feeData.maxFeePerGas.mul(2);
-        gasOverrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas && feeData.maxPriorityFeePerGas.gt(minTipGwei)
-          ? feeData.maxPriorityFeePerGas
-          : minTipGwei;
-      } else if (feeData.gasPrice) {
-        const minGasPrice = BigNumber.from("50000000000");
-        gasOverrides.gasPrice = feeData.gasPrice.gt(minGasPrice) ? feeData.gasPrice : minGasPrice;
-      }
-      console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}`);
-
-      for (const step of approvalSteps) {
-        if (step.check()) {
-          results.push({ step: step.name, skipped: true });
-          console.log(`[LiveTrading] ${step.name}: already approved, skipping`);
-        } else {
-          console.log(`[LiveTrading] Approving ${step.name}...`);
-          await delay(2000);
-          const tx = await step.execute(gasOverrides);
-          const receipt = await tx.wait();
-          results.push({ step: step.name, txHash: receipt.transactionHash });
-          console.log(`[LiveTrading] ${step.name} approved: ${receipt.transactionHash}`);
+        const feeData = await provider.getFeeData();
+        const minTipGwei = BigNumber.from("30000000000");
+        const gasOverrides: any = {};
+        if (feeData.maxFeePerGas) {
+          gasOverrides.maxFeePerGas = feeData.maxFeePerGas.mul(2);
+          gasOverrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas && feeData.maxPriorityFeePerGas.gt(minTipGwei)
+            ? feeData.maxPriorityFeePerGas
+            : minTipGwei;
+        } else if (feeData.gasPrice) {
+          const minGasPrice = BigNumber.from("50000000000");
+          gasOverrides.gasPrice = feeData.gasPrice.gt(minGasPrice) ? feeData.gasPrice : minGasPrice;
         }
-      }
+        console.log(`[LiveTrading] Gas overrides: maxFee=${gasOverrides.maxFeePerGas?.toString()}, tip=${gasOverrides.maxPriorityFeePerGas?.toString()}, gasPrice=${gasOverrides.gasPrice?.toString()}`);
+
+        for (const step of approvalSteps) {
+          if (step.check()) {
+            results.push({ step: step.name, skipped: true });
+            console.log(`[LiveTrading] ${step.name}: already approved, skipping`);
+          } else {
+            console.log(`[LiveTrading] Approving ${step.name}...`);
+            await delay(2000);
+            const tx = await step.execute(gasOverrides);
+            const receipt = await tx.wait();
+            results.push({ step: step.name, txHash: receipt.transactionHash });
+            console.log(`[LiveTrading] ${step.name} approved: ${receipt.transactionHash}`);
+          }
+        }
+      });
 
       await storage.createEvent({
         type: "INFO",
@@ -520,21 +597,72 @@ export class LiveTradingClient {
         level: "warn",
       });
 
-      const response = await this.client.createAndPostOrder(
-        {
-          tokenID: params.tokenId,
-          price: roundedPrice,
-          side,
-          size: roundedSize,
-        },
-        {
-          tickSize: params.tickSize,
-          negRisk: params.negRisk,
-        } as any,
-        OrderType.GTC,
-      );
+      const attemptOrder = async (client: ClobClient): Promise<any> => {
+        return client.createAndPostOrder(
+          {
+            tokenID: params.tokenId,
+            price: roundedPrice,
+            side,
+            size: roundedSize,
+          },
+          {
+            tickSize: params.tickSize,
+            negRisk: params.negRisk,
+          } as any,
+          OrderType.GTC,
+        );
+      };
 
-      console.log("[LiveTrading] Order response:", JSON.stringify(response));
+      let response: any;
+      try {
+        response = await attemptOrder(this.client);
+      } catch (err: any) {
+        const isInvalidSig = err.message?.toLowerCase().includes("invalid signature") ||
+          err.message?.toLowerCase().includes("l2 auth");
+        if (isInvalidSig) {
+          console.log(`[LiveTrading] Invalid signature with current sigType, will auto-detect...`);
+          response = { error: err.message };
+        } else {
+          throw err;
+        }
+      }
+
+      const responseStr = JSON.stringify(response);
+      console.log("[LiveTrading] Order response:", responseStr);
+
+      const isInvalidSig = responseStr?.toLowerCase().includes("invalid signature") ||
+        responseStr?.toLowerCase().includes("l2 auth");
+
+      if (isInvalidSig && this.wallet && this.creds) {
+        const currentSig = this.detectedSigType ?? getSignatureType();
+        const sigTypesToTry = [0, 1, 2].filter(s => s !== currentSig);
+        console.log(`[LiveTrading] Invalid signature with sigType=${currentSig}, trying alternatives: ${sigTypesToTry}`);
+
+        for (const altSig of sigTypesToTry) {
+          try {
+            const funder = getFunderAddress();
+            const altClient = new ClobClient(CLOB_HOST, CHAIN_ID, this.wallet, this.creds, altSig, funder);
+            response = await attemptOrder(altClient);
+            const altResponseStr = JSON.stringify(response);
+            const stillInvalid = altResponseStr?.toLowerCase().includes("invalid signature") ||
+              altResponseStr?.toLowerCase().includes("l2 auth");
+            if (!stillInvalid) {
+              this.detectedSigType = altSig;
+              this.client = altClient;
+              console.log(`[LiveTrading] sigType=${altSig} works! Reinitializing client.`);
+              await storage.createEvent({
+                type: "INFO",
+                message: `Auto-detected signature type: ${altSig}`,
+                data: { previousSigType: currentSig, newSigType: altSig },
+                level: "info",
+              });
+              break;
+            }
+          } catch (retryErr: any) {
+            console.log(`[LiveTrading] sigType=${altSig} also failed: ${retryErr.message?.slice(0, 80)}`);
+          }
+        }
+      }
 
       const orderID = response?.orderID || response?.id || response?.orderHash;
 
