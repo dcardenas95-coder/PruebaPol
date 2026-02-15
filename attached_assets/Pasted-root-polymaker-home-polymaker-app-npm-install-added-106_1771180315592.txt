@@ -1,0 +1,99 @@
+root@polymaker:/home/polymaker/app# npm install
+
+added 106 packages, and audited 553 packages in 5s
+
+120 packages are looking for funding
+  run `npm fund` for details
+
+18 vulnerabilities (17 low, 1 moderate)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+root@polymaker:/home/polymaker/app# npm run build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2650 modules transformed.
+root@polymaker:/home/polymaker/app# pm2 restart polymaker
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [polymaker](ids: [ 0 ])
+[PM2] [polymaker](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ polymaker          │ cluster  │ 1    │ online    │ 0%       │ 37.7mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+root@polymaker:/home/polymaker/app# pm2 restart polymaker
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [polymaker](ids: [ 0 ])
+[PM2] [polymaker](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ polymaker          │ cluster  │ 2    │ online    │ 0%       │ 37.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+root@polymaker:/home/polymaker/app# pm2 logs polymaker --lines 10
+[TAILING] Tailing last 10 lines for [polymaker] process (change the value with --lines option)
+/var/log/polymaker/out.log last 10 lines:
+0|polymake | ntMarketNegRisk":false,"currentMarketTickSize":"0.01","autoRotate":true,"autoRotateAsset":"btc","autoRotateInterval":"5m","updatedAt":"2026-02-15T18:24:44.994Z"}
+0|polymake | 2026-02-15 18:27:50 +00:00: 6:27:50 PM [express] GET /api/bot/status 200 in 6ms :: {"config":{"id":"244f951e-53d3-4815-9949-06ca5d1e9ebf","isActive":false,"isPaperTrading":false,"currentState":"STOPPED","minSpread":0.03,"targetProfitMin":0.03,"targetProfitMax":0.05,"maxNetExposure":100,"maxDailyLoss":50,"maxConsecutiveLosses":3,"orderSize":5,"killSwitchActive":false,"currentMarketId":"21073357388568718378853336570996542715775789781181142707926429878848173999698","currentMarketSlug":"btc-updown-5m-1771179600","currentMarketNegRisk":false,"currentMarketTickSize":"0.01","autoRotate":true,"autoRotateAsset":"btc","autoRotateInterval":"5m","updatedAt":"2026-02-15T18:24:44.994Z"},"marketData":{"bestBid":0.92,"bestAsk":0.93,"spread":0.01,"midpoint":0.925,"bidDepth":28794.53,"askDepth":24710.5,"lastPrice":0.925,"volume24h":0},"activeOrders":0,"openPositions":0,"dailyPnl":0.2494,"consecutiveLosses":0,"uptime":651014,"isLiveData":true,"currentTokenId":"21073357388568718378853336570996542715775789781181142707926429878848173999698","wsHealth":{"marketConnected":false,"userConnected":false,"marketLastMessage":1771179723956,"userLastMessage":null,"marketReconnects":16,"userReconnects":16,"marketSubscribedAssets":["21073357388568718378853336570996542715775789781181142707926429878848173999698"],"userSubscribedAssets":["21073357388568718378853336570996542715775789781181142707926429878848173999698","87850502997600931711629316349090241373231327793267429976129880313922028792557"]},"marketRemainingMs":0,"marketDurationMs":300000,"isLiquidating":false,"dualEntry5m":{"isRunning":false,"currentCycle":null,"nextWindowStart":null,"activeCycles":0,"marketSlug":null,"marketQuestion":null,"asset":null,"interval":null,"isDryRun":true,"dualTpMode":false,"autoRotate":true,"orderSize":5,"entryPrice":0.5,"tpPrice":0.55,"scratchPrice":0.49}}
+
+/var/log/polymaker/error.log last 10 lines:
+0|polymake |     at moduleResolve (node:internal/modules/esm/resolve:952:10)
+0|polymake |     at defaultResolve (node:internal/modules/esm/resolve:1188:11)
+0|polymake |     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:708:12)
+0|polymake |     at #cachedDefaultResolve (node:internal/modules/esm/loader:657:25)
+0|polymake |     at ModuleLoader.resolve (node:internal/modules/esm/loader:640:38)
+0|polymake |     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:264:38)
+0|polymake |     at ModuleLoader.import (node:internal/modules/esm/loader:605:34)
+0|polymake |     at defaultImportModuleDynamicallyForScript (node:internal/modules/esm/utils:234:31)
+0|polymake |     at importModuleDynamicallyCallback (node:internal/modules/esm/utils:256:12)
+0|polymake | 2026-02-15 18:29:03 +00:00: Error: ENOENT: no such file or directory, stat '/home/polymaker/app/dist/public/index.html'
+
+npm run build
+
+^C
+root@polymaker:/home/polymaker/app# npm run build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2650 modules transformed.
+root@polymaker:/home/polymaker/app# cd /home/polymaker/app && npm run build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2650 modules transformed.
+../dist/public/index.html                   1.00 kB │ gzip:   0.53 kB
+../dist/public/assets/index-D8H79Ppl.css   73.48 kB │ gzip:  11.95 kB
+../dist/public/assets/index-rwegNFy2.js   875.16 kB │ gzip: 250.36 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 28.75s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 11205ms
