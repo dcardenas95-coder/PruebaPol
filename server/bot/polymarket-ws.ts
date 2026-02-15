@@ -214,15 +214,20 @@ export class PolymarketWebSocket {
 
         if (rawStr === "INVALID OPERATION" || rawStr.startsWith("INVALID")) {
           this.invalidOpCountMarket++;
-          this.log("warn", `Market WS: Received "${rawStr}" (attempt ${this.invalidOpCountMarket}/3). Reconnecting with backoff...`);
-          if (this.invalidOpCountMarket >= 3) {
-            this.log("warn", `Market WS: ${this.invalidOpCountMarket} consecutive INVALID OPERATION responses. Stopping reconnection.`);
+          const backoffDelay = Math.min(5000 * this.invalidOpCountMarket, 30000);
+          this.log("warn", `Market WS: Received "${rawStr}" (attempt ${this.invalidOpCountMarket}/5). Will retry in ${backoffDelay / 1000}s...`);
+          if (this.invalidOpCountMarket >= 5) {
+            this.log("warn", `Market WS: ${this.invalidOpCountMarket} consecutive INVALID OPERATION. Asset ID may be expired. Stopping reconnection until next market rotation.`);
             this.shouldReconnectMarket = false;
+            this._cleanupMarket();
+            return;
           }
           this._cleanupMarket();
-          if (this.shouldReconnectMarket) {
-            this._refreshAndReconnectMarket();
-          }
+          setTimeout(() => {
+            if (this.shouldReconnectMarket) {
+              this._refreshAndReconnectMarket();
+            }
+          }, backoffDelay);
           return;
         }
         this.invalidOpCountMarket = 0;

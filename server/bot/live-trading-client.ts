@@ -283,16 +283,41 @@ export class LiveTradingClient {
 
       const orderID = response?.orderID || response?.id || response?.orderHash;
 
-      if (response?.success === false || response?.errorMsg) {
+      const isGeoBlocked = response?.status === 403 ||
+        (typeof response?.error === "string" && response.error.toLowerCase().includes("regional restriction")) ||
+        (typeof response?.error === "string" && response.error.toLowerCase().includes("access restricted"));
+
+      if (isGeoBlocked) {
+        const errorMsg = response?.error || "Access restricted due to regional restrictions";
         await storage.createEvent({
           type: "ORDER_REJECTED",
-          message: `LIVE ORDER REJECTED: ${response.errorMsg || "Unknown error"}`,
+          message: `GEO-BLOCKED: ${errorMsg}`,
+          data: { response, geoBlocked: true },
+          level: "error",
+        });
+        return {
+          success: false,
+          errorMsg,
+          geoBlocked: true,
+        } as LiveOrderResult & { geoBlocked: boolean };
+      }
+
+      const hasError = response?.success === false ||
+        response?.errorMsg ||
+        (typeof response?.error === "string" && response.error.length > 0) ||
+        (!orderID && !response?.transactID);
+
+      if (hasError) {
+        const errorMsg = response?.errorMsg || response?.error || "Order rejected by exchange (no order ID returned)";
+        await storage.createEvent({
+          type: "ORDER_REJECTED",
+          message: `LIVE ORDER REJECTED: ${errorMsg}`,
           data: { response },
           level: "error",
         });
         return {
           success: false,
-          errorMsg: response.errorMsg || "Order rejected by exchange",
+          errorMsg,
         };
       }
 

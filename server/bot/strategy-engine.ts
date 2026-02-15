@@ -779,16 +779,29 @@ export class StrategyEngine {
     if (!bestSide) return;
 
     if (bestSide === "BUY") {
-      await this.orderManager.placeOrder({
-        marketId,
-        tokenId,
-        side: "BUY",
-        price: data.bestBid,
-        size: config.orderSize,
-        isPaperTrade: config.isPaperTrading,
-        negRisk,
-        tickSize,
-      });
+      try {
+        await this.orderManager.placeOrder({
+          marketId,
+          tokenId,
+          side: "BUY",
+          price: data.bestBid,
+          size: config.orderSize,
+          isPaperTrade: config.isPaperTrading,
+          negRisk,
+          tickSize,
+        });
+      } catch (err: any) {
+        if (err.message?.includes("regional restriction") || err.message?.includes("Access restricted") || err.message?.includes("GEO-BLOCKED")) {
+          await storage.createEvent({
+            type: "ERROR",
+            message: `GEO-BLOCKED: Polymarket rechazó la orden por restricción regional. El servidor se ejecuta desde una IP bloqueada. Cambiando a paper trading automáticamente.`,
+            data: { error: err.message, action: "auto_switch_paper" },
+            level: "error",
+          });
+          await storage.updateBotConfig({ isPaperTrading: true });
+          console.error(`[Strategy] GEO-BLOCKED: Auto-switching to paper trading mode`);
+        }
+      }
     }
   }
 
