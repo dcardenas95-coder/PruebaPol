@@ -31,6 +31,7 @@ export interface IStorage {
 
   getPositions(): Promise<Position[]>;
   getPositionByMarket(marketId: string, side: string): Promise<Position | undefined>;
+  getPositionByToken(tokenId: string, side: string): Promise<Position | undefined>;
   upsertPosition(position: InsertPosition): Promise<Position>;
   deletePosition(id: string): Promise<void>;
 
@@ -149,8 +150,16 @@ export class DatabaseStorage implements IStorage {
     return pos || undefined;
   }
 
+  async getPositionByToken(tokenId: string, side: string): Promise<Position | undefined> {
+    const [pos] = await db.select().from(positions)
+      .where(and(eq(positions.tokenId, tokenId), eq(positions.side, side as any)));
+    return pos || undefined;
+  }
+
   async upsertPosition(position: InsertPosition): Promise<Position> {
-    const existing = await this.getPositionByMarket(position.marketId, position.side);
+    const existing = position.tokenId
+      ? await this.getPositionByToken(position.tokenId, position.side)
+      : await this.getPositionByMarket(position.marketId, position.side);
     if (existing) {
       const [updated] = await db.update(positions)
         .set({ ...position, updatedAt: new Date() })

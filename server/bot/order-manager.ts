@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import type { Order, InsertOrder } from "@shared/schema";
 import { liveTradingClient } from "./live-trading-client";
 
-type FillCallback = (marketId: string, side: string, fillSize: number, fillPrice: number) => Promise<void>;
+type FillCallback = (marketId: string, side: string, fillSize: number, fillPrice: number, tokenId?: string) => Promise<void>;
 
 export class OrderManager {
   private orderTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
@@ -62,6 +62,7 @@ export class OrderManager {
           await storage.createFill({
             orderId: dbOrder.id,
             marketId: dbOrder.marketId,
+            tokenId: dbOrder.tokenId || dbOrder.marketId,
             side: dbOrder.side,
             price: fillPrice,
             size: newFillSize,
@@ -70,7 +71,7 @@ export class OrderManager {
           });
 
           await storage.updateOrderStatus(dbOrder.id, "PARTIALLY_FILLED", sizeMatched);
-          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee);
+          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee, dbOrder.tokenId || dbOrder.marketId);
           filled++;
         }
         reconciled++;
@@ -87,13 +88,14 @@ export class OrderManager {
           await storage.createFill({
             orderId: dbOrder.id,
             marketId: dbOrder.marketId,
+            tokenId: dbOrder.tokenId || dbOrder.marketId,
             side: dbOrder.side,
             price: fillPrice,
             size: newFillSize,
             fee,
             isPaperTrade: false,
           });
-          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee);
+          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee, dbOrder.tokenId || dbOrder.marketId);
           filled++;
         }
 
@@ -177,6 +179,7 @@ export class OrderManager {
     const order = await storage.createOrder({
       clientOrderId,
       marketId: params.marketId,
+      tokenId: params.tokenId || params.marketId,
       side: params.side,
       price: params.price,
       size: params.size,
@@ -225,9 +228,12 @@ export class OrderManager {
       }
     }
 
+    const effectiveTokenId = params.tokenId || params.marketId;
+
     const order = await storage.createOrder({
       clientOrderId,
       marketId: params.marketId,
+      tokenId: effectiveTokenId,
       side: params.side,
       price: params.price,
       size: params.size,
@@ -239,7 +245,7 @@ export class OrderManager {
       oracleConfidence: params.oracleConfidence,
     });
 
-    const sdkTokenId = params.tokenId || params.marketId;
+    const sdkTokenId = effectiveTokenId;
 
     if (sdkTokenId.includes("sim") || sdkTokenId.length < 10) {
       await storage.updateOrderStatus(order.id, "REJECTED");
@@ -380,6 +386,7 @@ export class OrderManager {
           await storage.createFill({
             orderId: order.id,
             marketId: order.marketId,
+            tokenId: order.tokenId || order.marketId,
             side: order.side,
             price: fillPrice,
             size: newFillSize,
@@ -396,7 +403,7 @@ export class OrderManager {
             level: "info",
           });
 
-          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee);
+          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee, order.tokenId || order.marketId);
           results.push({ filled: true, pnl, fee });
         }
       } else {
@@ -412,6 +419,7 @@ export class OrderManager {
           await storage.createFill({
             orderId: order.id,
             marketId: order.marketId,
+            tokenId: order.tokenId || order.marketId,
             side: order.side,
             price: fillPrice,
             size: newFillSize,
@@ -419,7 +427,7 @@ export class OrderManager {
             isPaperTrade: false,
           });
 
-          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee);
+          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee, order.tokenId || order.marketId);
           results.push({ filled: true, pnl, fee });
         }
 
@@ -471,6 +479,7 @@ export class OrderManager {
     await storage.createFill({
       orderId: matchingOrder.id,
       marketId: matchingOrder.marketId,
+      tokenId: matchingOrder.tokenId || matchingOrder.marketId,
       side: matchingOrder.side,
       price: fillPrice,
       size: newFillSize,
@@ -500,7 +509,7 @@ export class OrderManager {
       level: "info",
     });
 
-    const pnl = await this.updatePosition(matchingOrder.marketId, matchingOrder.side, newFillSize, fillPrice, fee);
+    const pnl = await this.updatePosition(matchingOrder.marketId, matchingOrder.side, newFillSize, fillPrice, fee, matchingOrder.tokenId || matchingOrder.marketId);
     if (pnl !== 0) {
       console.log(`[OrderManager/WS] Fill processed: ${matchingOrder.side} ${newFillSize} @ ${fillPrice}, PnL: ${pnl}`);
     }
@@ -579,6 +588,7 @@ export class OrderManager {
     await storage.createFill({
       orderId: order.id,
       marketId: order.marketId,
+      tokenId: order.tokenId || order.marketId,
       side: order.side,
       price: fillPrice,
       size: fillSize,
@@ -590,24 +600,29 @@ export class OrderManager {
 
     await storage.createEvent({
       type: "ORDER_FILLED",
-      message: `[PAPER] Order filled: ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${order.side}) [fee: $${fee.toFixed(4)}]`,
-      data: { orderId, fillPrice, fillSize, side: order.side, fee },
+      message: `[PAPER] Order filled: ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${order.side}) [fee: $${fee.toFixed(4)}] [token: ${order.tokenId === order.marketId ? 'UP' : 'DOWN'}]`,
+      data: { orderId, fillPrice, fillSize, side: order.side, fee, tokenId: order.tokenId },
       level: "info",
     });
 
-    const pnl = await this.updatePosition(order.marketId, order.side, fillSize, fillPrice, fee);
+    const pnl = await this.updatePosition(order.marketId, order.side, fillSize, fillPrice, fee, order.tokenId || order.marketId);
     return { filled: true, pnl, fee };
   }
 
-  private async updatePosition(marketId: string, side: string, fillSize: number, fillPrice: number, fee: number): Promise<number> {
+  private async updatePosition(marketId: string, side: string, fillSize: number, fillPrice: number, fee: number, tokenId?: string): Promise<number> {
+    const posTokenId = tokenId || marketId;
+
     if (side === "BUY") {
-      const existing = await storage.getPositionByMarket(marketId, "BUY");
+      const existing = tokenId
+        ? await storage.getPositionByToken(posTokenId, "BUY")
+        : await storage.getPositionByMarket(marketId, "BUY");
       if (existing) {
         const newSize = existing.size + fillSize;
         const newCost = existing.size * existing.avgEntryPrice + fillSize * fillPrice;
         const newAvg = newCost / newSize;
         await storage.upsertPosition({
           marketId,
+          tokenId: posTokenId,
           side: "BUY",
           size: parseFloat(newSize.toFixed(4)),
           avgEntryPrice: parseFloat(newAvg.toFixed(4)),
@@ -617,6 +632,7 @@ export class OrderManager {
       } else {
         await storage.upsertPosition({
           marketId,
+          tokenId: posTokenId,
           side: "BUY",
           size: fillSize,
           avgEntryPrice: fillPrice,
@@ -625,18 +641,21 @@ export class OrderManager {
         });
       }
 
+      const isTokenDown = tokenId && tokenId !== marketId;
       await storage.createEvent({
         type: "POSITION_UPDATE",
-        message: `Position opened/increased: BUY ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)}`,
-        data: { marketId, side: "BUY", fillSize, fillPrice },
+        message: `Position opened/increased: BUY ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
+        data: { marketId, tokenId: posTokenId, side: "BUY", fillSize, fillPrice, isTokenDown },
         level: "info",
       });
 
       if (this.onBuyFillCallback) {
         try {
-          const pos = await storage.getPositionByMarket(marketId, "BUY");
+          const pos = tokenId
+            ? await storage.getPositionByToken(posTokenId, "BUY")
+            : await storage.getPositionByMarket(marketId, "BUY");
           const avgEntry = pos?.avgEntryPrice || fillPrice;
-          await this.onBuyFillCallback(marketId, "BUY", fillSize, avgEntry);
+          await this.onBuyFillCallback(marketId, "BUY", fillSize, avgEntry, posTokenId);
         } catch (err: any) {
           console.error(`[OrderManager] onBuyFill callback error: ${err.message}`);
         }
@@ -644,7 +663,9 @@ export class OrderManager {
 
       return 0;
     } else {
-      const buyPos = await storage.getPositionByMarket(marketId, "BUY");
+      const buyPos = tokenId
+        ? await storage.getPositionByToken(posTokenId, "BUY")
+        : await storage.getPositionByMarket(marketId, "BUY");
       let realizedPnl = 0;
 
       if (buyPos && buyPos.size > 0) {
@@ -657,6 +678,7 @@ export class OrderManager {
         } else {
           await storage.upsertPosition({
             marketId,
+            tokenId: posTokenId,
             side: "BUY",
             size: remainingSize,
             avgEntryPrice: buyPos.avgEntryPrice,
@@ -665,17 +687,27 @@ export class OrderManager {
           });
         }
 
+        const isTokenDown = tokenId && tokenId !== marketId;
         await storage.createEvent({
           type: "PNL_UPDATE",
-          message: `Trade closed: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)} realized PnL`,
+          message: `Trade closed: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)} realized PnL [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
           data: {
             marketId,
+            tokenId: posTokenId,
             entryPrice: buyPos.avgEntryPrice,
             exitPrice: fillPrice,
             size: closeSize,
             realizedPnl,
+            isTokenDown,
           },
           level: realizedPnl >= 0 ? "info" : "warn",
+        });
+      } else {
+        await storage.createEvent({
+          type: "PNL_UPDATE",
+          message: `[WARN] Orphan SELL: no matching BUY position for token ${posTokenId}. Size=${fillSize} @ $${fillPrice.toFixed(4)}`,
+          data: { marketId, tokenId: posTokenId, fillSize, fillPrice, orphan: true },
+          level: "warn",
         });
       }
 

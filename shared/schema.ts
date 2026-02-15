@@ -42,6 +42,7 @@ export const orders = pgTable("orders", {
   clientOrderId: text("client_order_id").notNull().unique(),
   exchangeOrderId: text("exchange_order_id"),
   marketId: text("market_id").notNull(),
+  tokenId: text("token_id"),
   side: orderSideEnum("side").notNull(),
   price: real("price").notNull(),
   size: real("size").notNull(),
@@ -59,6 +60,7 @@ export const fills = pgTable("fills", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orderId: varchar("order_id").notNull(),
   marketId: text("market_id").notNull(),
+  tokenId: text("token_id"),
   side: orderSideEnum("side").notNull(),
   price: real("price").notNull(),
   size: real("size").notNull(),
@@ -70,6 +72,7 @@ export const fills = pgTable("fills", {
 export const positions = pgTable("positions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   marketId: text("market_id").notNull(),
+  tokenId: text("token_id"),
   side: orderSideEnum("side").notNull(),
   size: real("size").notNull().default(0),
   avgEntryPrice: real("avg_entry_price").notNull().default(0),
