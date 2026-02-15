@@ -630,7 +630,9 @@ function ApprovalCard() {
     success: boolean;
     usdcCtfExchange: string;
     usdcNegRiskExchange: string;
+    usdcNegRiskAdapter: string;
     ctfExchange: boolean;
+    ctfNegRiskExchange: boolean;
     ctfNegRiskAdapter: boolean;
     allApproved: boolean;
   }>({
@@ -684,15 +686,23 @@ function ApprovalCard() {
               <span className="text-muted-foreground">{parseFloat(approvalStatus.usdcCtfExchange) > 1000000 ? "∞" : `$${approvalStatus.usdcCtfExchange}`}</span>
             </div>
             <div className="flex items-center justify-between" data-testid="status-approval-usdc-negrisk">
-              <span className="flex items-center gap-1.5"><StatusDot ok={parseFloat(approvalStatus.usdcNegRiskExchange) > 1000000} /> USDC → Neg Risk</span>
+              <span className="flex items-center gap-1.5"><StatusDot ok={parseFloat(approvalStatus.usdcNegRiskExchange) > 1000000} /> USDC → Neg Risk Exch</span>
               <span className="text-muted-foreground">{parseFloat(approvalStatus.usdcNegRiskExchange) > 1000000 ? "∞" : `$${approvalStatus.usdcNegRiskExchange}`}</span>
             </div>
+            <div className="flex items-center justify-between" data-testid="status-approval-usdc-adapter">
+              <span className="flex items-center gap-1.5"><StatusDot ok={parseFloat(approvalStatus.usdcNegRiskAdapter) > 1000000} /> USDC → Neg Risk Adapter</span>
+              <span className="text-muted-foreground">{parseFloat(approvalStatus.usdcNegRiskAdapter) > 1000000 ? "∞" : `$${approvalStatus.usdcNegRiskAdapter}`}</span>
+            </div>
             <div className="flex items-center justify-between" data-testid="status-approval-ctf-exchange">
-              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfExchange} /> CTF → Exchange</span>
+              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfExchange} /> CTF → CTF Exchange</span>
               <span className="text-muted-foreground">{approvalStatus.ctfExchange ? "OK" : "No"}</span>
             </div>
+            <div className="flex items-center justify-between" data-testid="status-approval-ctf-negrisk-exch">
+              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfNegRiskExchange} /> CTF → Neg Risk Exch</span>
+              <span className="text-muted-foreground">{approvalStatus.ctfNegRiskExchange ? "OK" : "No"}</span>
+            </div>
             <div className="flex items-center justify-between" data-testid="status-approval-ctf-negrisk">
-              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfNegRiskAdapter} /> CTF → Neg Risk</span>
+              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfNegRiskAdapter} /> CTF → Neg Risk Adapter</span>
               <span className="text-muted-foreground">{approvalStatus.ctfNegRiskAdapter ? "OK" : "No"}</span>
             </div>
           </div>

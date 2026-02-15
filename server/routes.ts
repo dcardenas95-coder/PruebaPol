@@ -567,7 +567,9 @@ export async function registerRoutes(
       }
       const allApproved = parseFloat(status.usdcCtfExchange) > 1000000 &&
         parseFloat(status.usdcNegRiskExchange) > 1000000 &&
+        parseFloat(status.usdcNegRiskAdapter) > 1000000 &&
         status.ctfExchange &&
+        status.ctfNegRiskExchange &&
         status.ctfNegRiskAdapter;
       res.json({ success: true, ...status, allApproved });
     } catch (error: any) {

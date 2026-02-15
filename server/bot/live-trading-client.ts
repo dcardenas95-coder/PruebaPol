@@ -7,7 +7,6 @@ import { BigNumber } from "@ethersproject/bignumber";
 import { storage } from "../storage";
 import { apiRateLimiter } from "./rate-limiter";
 
-const POLYGON_RPC = "https://polygon-rpc.com";
 const USDC_E_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 const USDC_NATIVE_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359";
 const CTF_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
@@ -26,6 +25,62 @@ const ERC1155_ABI = [
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const CHAIN_ID = 137;
+
+const POLYGON_RPC_ENDPOINTS = [
+  "https://polygon-rpc.com",
+  "https://polygon.llamarpc.com",
+  "https://polygon-bor-rpc.publicnode.com",
+  "https://rpc-mainnet.matic.quiknode.pro",
+];
+
+let currentRpcIndex = 0;
+let lastRpcError = 0;
+
+function getPolygonProvider(): JsonRpcProvider {
+  if (Date.now() - lastRpcError < 30000 && currentRpcIndex < POLYGON_RPC_ENDPOINTS.length - 1) {
+    currentRpcIndex++;
+    console.log(`[RPC] Rotating to endpoint ${currentRpcIndex}: ${POLYGON_RPC_ENDPOINTS[currentRpcIndex].slice(0, 40)}...`);
+  }
+  return new JsonRpcProvider(POLYGON_RPC_ENDPOINTS[currentRpcIndex]);
+}
+
+function markRpcError(): void {
+  lastRpcError = Date.now();
+}
+
+function resetRpcIndex(): void {
+  currentRpcIndex = 0;
+}
+
+async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function serialRpcCall<T>(calls: (() => Promise<T>)[], delayMs = 1500): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < calls.length; i++) {
+    if (i > 0) await delay(delayMs);
+    let lastErr: Error | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        results.push(await calls[i]());
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        if (err.message?.includes("Too many requests") || err.message?.includes("rate limit")) {
+          markRpcError();
+          console.log(`[RPC] Rate limited on call ${i}, waiting 3s before retry...`);
+          await delay(3000);
+        } else {
+          break;
+        }
+      }
+    }
+    if (lastErr) throw lastErr;
+  }
+  return results;
+}
 
 function getSignatureType(): number {
   return process.env.POLYMARKET_FUNDER_ADDRESS ? 1 : 0;
@@ -203,6 +258,7 @@ export class LiveTradingClient {
         if (this.detectedSigType !== sigType) {
           this.detectedSigType = sigType;
           console.log(`[LiveTrading] Detected working signature type: ${sigType} (balance: ${result.balance})`);
+          await this.reinitializeWithSigType(sigType);
         }
         return result;
       }
@@ -220,19 +276,33 @@ export class LiveTradingClient {
     };
   }
 
+  private async reinitializeWithSigType(sigType: number): Promise<void> {
+    if (!this.wallet || !this.creds) return;
+    try {
+      const funder = getFunderAddress();
+      this.client = new ClobClient(
+        CLOB_HOST, CHAIN_ID, this.wallet, this.creds,
+        sigType, funder,
+      );
+      console.log(`[LiveTrading] Reinitialized CLOB client with sigType=${sigType}`);
+    } catch (error: any) {
+      console.error(`[LiveTrading] Failed to reinitialize with sigType=${sigType}: ${error.message}`);
+    }
+  }
+
   async getOnChainUsdcBalance(): Promise<{ usdcE: string; usdcNative: string; total: string } | null> {
     if (!this.wallet) return null;
     try {
-      const provider = new JsonRpcProvider(POLYGON_RPC);
+      const provider = getPolygonProvider();
       const address = await this.wallet.getAddress();
 
       const usdcEContract = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
       const usdcNativeContract = new Contract(USDC_NATIVE_ADDRESS, ERC20_ABI, provider);
 
-      const [balE, balNative] = await Promise.all([
-        usdcEContract.balanceOf(address).catch(() => BigInt(0)),
-        usdcNativeContract.balanceOf(address).catch(() => BigInt(0)),
-      ]);
+      const [balE, balNative] = await serialRpcCall([
+        () => usdcEContract.balanceOf(address).catch(() => BigInt(0)),
+        () => usdcNativeContract.balanceOf(address).catch(() => BigInt(0)),
+      ], 500);
 
       const formatUsdc = (raw: any): string => {
         const n = Number(raw) / 1e6;
@@ -246,6 +316,7 @@ export class LiveTradingClient {
         total: (totalRaw / 1e6).toFixed(2),
       };
     } catch (error: any) {
+      if (error.message?.includes("Too many requests") || error.message?.includes("rate limit")) markRpcError();
       console.error(`[LiveTrading] On-chain USDC balance error: ${error.message} | wallet=${this.wallet?.address || "none"} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
       return null;
     }
@@ -254,23 +325,34 @@ export class LiveTradingClient {
   async getApprovalStatus(): Promise<{
     usdcCtfExchange: string;
     usdcNegRiskExchange: string;
+    usdcNegRiskAdapter: string;
     ctfExchange: boolean;
+    ctfNegRiskExchange: boolean;
     ctfNegRiskAdapter: boolean;
   } | null> {
     if (!this.wallet) return null;
     try {
-      const provider = new JsonRpcProvider(POLYGON_RPC);
+      const provider = getPolygonProvider();
       const address = await this.wallet.getAddress();
       const usdc = new Contract(USDC_E_ADDRESS, ERC20_ABI, provider);
       const ctf = new Contract(CTF_ADDRESS, ERC1155_ABI, provider);
       const zero = BigNumber.from(0);
 
-      const [allowCtf, allowNeg, approvedCtf, approvedNeg] = await Promise.all([
-        usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
-        usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
-        ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
-        ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
-      ]);
+      const results = await serialRpcCall<BigNumber | boolean>([
+        () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
+        () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
+        () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
+        () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
+        () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
+        () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
+      ], 800);
+
+      const allowCtf = results[0] as BigNumber;
+      const allowNeg = results[1] as BigNumber;
+      const allowAdapter = results[2] as BigNumber;
+      const approvedCtf = results[3] as boolean;
+      const approvedNegExch = results[4] as boolean;
+      const approvedNegAdapter = results[5] as boolean;
 
       const formatAllowance = (val: BigNumber): string => {
         if (val.gt(BigNumber.from("1000000000000"))) return "999999999999.00";
@@ -280,8 +362,10 @@ export class LiveTradingClient {
       return {
         usdcCtfExchange: formatAllowance(allowCtf),
         usdcNegRiskExchange: formatAllowance(allowNeg),
+        usdcNegRiskAdapter: formatAllowance(allowAdapter),
         ctfExchange: approvedCtf,
-        ctfNegRiskAdapter: approvedNeg,
+        ctfNegRiskExchange: approvedNegExch,
+        ctfNegRiskAdapter: approvedNegAdapter,
       };
     } catch (error: any) {
       console.error(`[LiveTrading] Approval status error: ${error.message}`);
@@ -299,7 +383,7 @@ export class LiveTradingClient {
     }
 
     const results: { step: string; txHash?: string; error?: string; skipped?: boolean }[] = [];
-    const provider = new JsonRpcProvider(POLYGON_RPC);
+    const provider = getPolygonProvider();
     const signer = this.wallet.connect(provider);
     const address = await this.wallet.getAddress();
     const maxApproval = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
@@ -311,51 +395,68 @@ export class LiveTradingClient {
       const zero = BigNumber.from(0);
       const highThreshold = BigNumber.from("1000000000000");
 
-      const [allowCtf, allowNeg, approvedCtf, approvedNeg] = await Promise.all([
-        usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
-        usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
-        ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
-        ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
-      ]);
+      console.log("[LiveTrading] Checking current approval status (serialized)...");
+      const checkResults = await serialRpcCall<BigNumber | boolean>([
+        () => usdc.allowance(address, CTF_EXCHANGE).catch(() => zero),
+        () => usdc.allowance(address, NEG_RISK_CTF_EXCHANGE).catch(() => zero),
+        () => usdc.allowance(address, NEG_RISK_ADAPTER).catch(() => zero),
+        () => ctf.isApprovedForAll(address, CTF_EXCHANGE).catch(() => false),
+        () => ctf.isApprovedForAll(address, NEG_RISK_CTF_EXCHANGE).catch(() => false),
+        () => ctf.isApprovedForAll(address, NEG_RISK_ADAPTER).catch(() => false),
+      ], 1000);
 
-      if (allowCtf.gt(highThreshold)) {
-        results.push({ step: "USDC → CTF Exchange", skipped: true });
-      } else {
-        console.log("[LiveTrading] Approving USDC for CTF Exchange...");
-        const tx1 = await usdc.approve(CTF_EXCHANGE, maxApproval);
-        const receipt1 = await tx1.wait();
-        results.push({ step: "USDC → CTF Exchange", txHash: receipt1.transactionHash });
-        console.log(`[LiveTrading] USDC → CTF Exchange approved: ${receipt1.transactionHash}`);
-      }
+      const allowCtf = checkResults[0] as BigNumber;
+      const allowNeg = checkResults[1] as BigNumber;
+      const allowAdapter = checkResults[2] as BigNumber;
+      const approvedCtfExch = checkResults[3] as boolean;
+      const approvedNegExch = checkResults[4] as boolean;
+      const approvedNegAdapter = checkResults[5] as boolean;
 
-      if (allowNeg.gt(highThreshold)) {
-        results.push({ step: "USDC → Neg Risk Exchange", skipped: true });
-      } else {
-        console.log("[LiveTrading] Approving USDC for Neg Risk Exchange...");
-        const tx2 = await usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval);
-        const receipt2 = await tx2.wait();
-        results.push({ step: "USDC → Neg Risk Exchange", txHash: receipt2.transactionHash });
-        console.log(`[LiveTrading] USDC → Neg Risk Exchange approved: ${receipt2.transactionHash}`);
-      }
+      const approvalSteps: { name: string; check: () => boolean; execute: () => Promise<any> }[] = [
+        {
+          name: "USDC → CTF Exchange",
+          check: () => allowCtf.gt(highThreshold),
+          execute: () => usdc.approve(CTF_EXCHANGE, maxApproval),
+        },
+        {
+          name: "USDC → Neg Risk Exchange",
+          check: () => allowNeg.gt(highThreshold),
+          execute: () => usdc.approve(NEG_RISK_CTF_EXCHANGE, maxApproval),
+        },
+        {
+          name: "USDC → Neg Risk Adapter",
+          check: () => allowAdapter.gt(highThreshold),
+          execute: () => usdc.approve(NEG_RISK_ADAPTER, maxApproval),
+        },
+        {
+          name: "CTF → CTF Exchange",
+          check: () => approvedCtfExch,
+          execute: () => ctf.setApprovalForAll(CTF_EXCHANGE, true),
+        },
+        {
+          name: "CTF → Neg Risk Exchange",
+          check: () => approvedNegExch,
+          execute: () => ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true),
+        },
+        {
+          name: "CTF → Neg Risk Adapter",
+          check: () => approvedNegAdapter,
+          execute: () => ctf.setApprovalForAll(NEG_RISK_ADAPTER, true),
+        },
+      ];
 
-      if (approvedCtf) {
-        results.push({ step: "CTF → CTF Exchange", skipped: true });
-      } else {
-        console.log("[LiveTrading] Setting CTF approval for CTF Exchange...");
-        const tx3 = await ctf.setApprovalForAll(CTF_EXCHANGE, true);
-        const receipt3 = await tx3.wait();
-        results.push({ step: "CTF → CTF Exchange", txHash: receipt3.transactionHash });
-        console.log(`[LiveTrading] CTF → CTF Exchange approved: ${receipt3.transactionHash}`);
-      }
-
-      if (approvedNeg) {
-        results.push({ step: "CTF → Neg Risk Adapter", skipped: true });
-      } else {
-        console.log("[LiveTrading] Setting CTF approval for Neg Risk Adapter...");
-        const tx4 = await ctf.setApprovalForAll(NEG_RISK_ADAPTER, true);
-        const receipt4 = await tx4.wait();
-        results.push({ step: "CTF → Neg Risk Adapter", txHash: receipt4.transactionHash });
-        console.log(`[LiveTrading] CTF → Neg Risk Adapter approved: ${receipt4.transactionHash}`);
+      for (const step of approvalSteps) {
+        if (step.check()) {
+          results.push({ step: step.name, skipped: true });
+          console.log(`[LiveTrading] ${step.name}: already approved, skipping`);
+        } else {
+          console.log(`[LiveTrading] Approving ${step.name}...`);
+          await delay(2000);
+          const tx = await step.execute();
+          const receipt = await tx.wait();
+          results.push({ step: step.name, txHash: receipt.transactionHash });
+          console.log(`[LiveTrading] ${step.name} approved: ${receipt.transactionHash}`);
+        }
       }
 
       await storage.createEvent({
