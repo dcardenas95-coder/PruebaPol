@@ -83,6 +83,7 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (últimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posición, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posición está en zona de riesgo ($0.30-$0.70). Evaluar después de tener datos de win rate con la estrategia actual.
 
 ## Recent Changes
+- 2026-02-15: Graceful liquidation on manual stop - when bot is stopped with open positions, enters LIQUIDATING mode: cancels BUY orders, attempts break-even exit for 60s, then force-crosses spread. Bot only transitions to STOPPED when all positions are closed. Dashboard shows orange liquidation banner with progress bar.
 - 2026-02-15: Fixed take-profit strategy: TP orders now placed proactively on BUY fill (not reactively waiting for price), deterministic TP price (no more random), separated entry/TP order limits, per-position TP coverage tracking with stale TP cancellation
 - 2026-02-15: Added targetExitPrice column to positions table for persistent TP price tracking
 - 2026-02-15: Added onBuyFill callback in OrderManager for immediate TP placement after fills

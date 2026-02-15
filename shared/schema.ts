@@ -370,4 +370,7 @@ export type BotStatus = {
   dualEntry5m?: DualEntry5mInfo;
   marketRemainingMs?: number;
   marketDurationMs?: number;
+  isLiquidating?: boolean;
+  liquidationElapsedMs?: number;
+  liquidationPatienceMs?: number;
 };

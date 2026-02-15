@@ -370,12 +370,16 @@ export default function Overview() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant={config?.isActive ? "destructive" : "default"}
+            variant={config?.isActive || status?.isLiquidating ? "destructive" : "default"}
             onClick={() => toggleMutation.mutate()}
-            disabled={toggleMutation.isPending || config?.killSwitchActive}
+            disabled={toggleMutation.isPending || config?.killSwitchActive || status?.isLiquidating}
             data-testid="button-toggle-bot"
           >
-            {config?.isActive ? (
+            {status?.isLiquidating ? (
+              <>
+                <Square className="w-4 h-4 mr-1.5 animate-pulse" /> Liquidando...
+              </>
+            ) : config?.isActive ? (
               <>
                 <Square className="w-4 h-4 mr-1.5" /> Stop Bot
               </>
@@ -406,6 +410,33 @@ export default function Overview() {
               <p className="text-xs text-muted-foreground">
                 All trading is halted. Deactivate in Configuration to resume.
               </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {status?.isLiquidating && (
+        <Card className="border-orange-500/50 bg-orange-500/5" data-testid="card-liquidating-banner">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-2">
+              <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0 animate-pulse" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-orange-500">Liquidando posiciones abiertas...</p>
+                <p className="text-xs text-muted-foreground">
+                  {(status.liquidationElapsedMs ?? 0) < (status.liquidationPatienceMs ?? 60000)
+                    ? `Intentando salir al precio de entrada. Cruce forzado del spread en ${Math.max(0, Math.floor(((status.liquidationPatienceMs ?? 60000) - (status.liquidationElapsedMs ?? 0)) / 1000))}s`
+                    : "Cruzando spread para forzar cierre de posiciones..."}
+                </p>
+              </div>
+              <Badge variant="outline" className="text-orange-500 border-orange-500/50 font-mono">
+                {status.openPositions} pos. abiertas
+              </Badge>
+            </div>
+            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-orange-500 transition-all duration-1000"
+                style={{ width: `${Math.min(100, ((status.liquidationElapsedMs ?? 0) / (status.liquidationPatienceMs ?? 60000)) * 100)}%` }}
+              />
             </div>
           </CardContent>
         </Card>
@@ -459,11 +490,11 @@ export default function Overview() {
             <div className="flex items-center gap-1.5">
               <Activity
                 className={`w-3.5 h-3.5 ${
-                  config?.isActive ? "text-emerald-500" : "text-muted-foreground"
+                  status?.isLiquidating ? "text-orange-500 animate-pulse" : config?.isActive ? "text-emerald-500" : "text-muted-foreground"
                 }`}
               />
-              <Badge variant={config?.isActive ? "default" : "secondary"}>
-                {config?.currentState || "STOPPED"}
+              <Badge variant={status?.isLiquidating ? "destructive" : config?.isActive ? "default" : "secondary"}>
+                {status?.isLiquidating ? "LIQUIDATING" : config?.currentState || "STOPPED"}
               </Badge>
             </div>
           </CardHeader>
