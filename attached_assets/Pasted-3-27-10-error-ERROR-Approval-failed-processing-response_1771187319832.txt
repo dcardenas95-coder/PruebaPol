@@ -1,0 +1,24 @@
+3:27:10
+error
+ERROR
+Approval failed: processing response error (body="{\"id\":null,\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32090,\"message\":\"Too many requests, reason: call rate limit exhausted, retry in 10s\",\"data\":{\"trace_id\":\"e63046b4c11d648e69a5edd0ef5ff6d9\"}}}", error={"code":-32090,"data":{"trace_id":"e63046b4c11d648e69a5edd0ef5ff6d9"}}, requestBody="{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x02f8b481890d8506fc23ac0086011516a80a60830103e2942791bca1f2de4661ed88a30c99a7a9449aa8417480b844095ea7b30000000000000000000000004bfb41d5b3570defd03c39a9a4d8de6bd8b8982effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc080a0d8c7cdfa90fb99794ea9a9ae520d29d3074106187af001fbda3f9819cf677dcfa0198be4299f4d9e2e18e76304c56a43e153660d87c61419bcc83accfeb8089b07\"],\"id\":66,\"jsonrpc\":\"2.0\"}", requestMethod="POST", url="https://polygon-rpc.com", code=SERVER_ERROR, version=web/5.8.0)
+{
+  "error": "processing response error (body=\"{\\\"id\\\":null,\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\"code\\\":-32090,\\\"message\\\":\\\"Too many requests, reason: call rate limit exhausted, retry in 10s\\\",\\\"data\\\":{\\\"trace_id\\\":\\\"e63046b4c11d648e69a5edd0ef5ff6d9\\\"}}}\", error={\"code\":-32090,\"data\":{\"trace_id\":\"e63046b4c11d648e69a5edd0ef5ff6d9\"}}, requestBody=\"{\\\"method\\\":\\\"eth_sendRawTransaction\\\",\\\"params\\\":[\\\"0x02f8b481890d8506fc23ac0086011516a80a60830103e2942791bca1f2de4661ed88a30c99a7a9449aa8417480b844095ea7b30000000000000000000000004bfb41d5b3570defd03c39a9a4d8de6bd8b8982effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc080a0d8c7cdfa90fb99794ea9a9ae520d29d3074106187af001fbda3f9819cf677dcfa0198be4299f4d9e2e18e76304c56a43e153660d87c61419bcc83accfeb8089b07\\\"],\\\"id\\\":66,\\\"jsonrpc\\\":\\\"2.0\\\"}\", requestMethod=\"POST\", url=\"https://polygon-rpc.com\", code=SERVER_ERROR, version=web/5.8.0)",
+  "completedSteps": []
+}
+13:25:58
+error
+ERROR
+Approval failed: could not detect network (event="noNetwork", code=NETWORK_ERROR, version=providers/5.8.0)
+{
+  "error": "could not detect network (event=\"noNetwork\", code=NETWORK_ERROR, version=providers/5.8.0)",
+  "completedSteps": []
+}
+13:24:48
+error
+ERROR
+Approval failed: processing response error (body="{\"id\":null,\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32090,\"message\":\"Too many requests, reason: call rate limit exhausted, retry in 10s\",\"data\":{\"trace_id\":\"f1106f274f8af97f08954bbb6b6ca899\"}}}", error={"code":-32090,"data":{"trace_id":"f1106f274f8af97f08954bbb6b6ca899"}}, requestBody="{\"method\":\"eth_getBlockByNumber\",\"params\":[\"latest\",false],\"id\":58,\"jsonrpc\":\"2.0\"}", requestMethod="POST", url="https://polygon-rpc.com", code=SERVER_ERROR, version=web/5.8.0)
+{
+  "error": "processing response error (body=\"{\\\"id\\\":null,\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\"code\\\":-32090,\\\"message\\\":\\\"Too many requests, reason: call rate limit exhausted, retry in 10s\\\",\\\"data\\\":{\\\"trace_id\\\":\\\"f1106f274f8af97f08954bbb6b6ca899\\\"}}}\", error={\"code\":-32090,\"data\":{\"trace_id\":\"f1106f274f8af97f08954bbb6b6ca899\"}}, requestBody=\"{\\\"method\\\":\\\"eth_getBlockByNumber\\\",\\\"params\\\":[\\\"latest\\\",false],\\\"id\\\":58,\\\"jsonrpc\\\":\\\"2.0\\\"}\", requestMethod=\"POST\", url=\"https://polygon-rpc.com\", code=SERVER_ERROR, version=web/5.8.0)",
+  "completedSteps": []
+}
