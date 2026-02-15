@@ -24,6 +24,8 @@ import {
   FlaskConical,
   CircleCheck,
   CircleX,
+  KeyRound,
+  RefreshCw,
 } from "lucide-react";
 import type { BotConfig } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -614,6 +616,7 @@ export default function Configuration() {
         </CardContent>
       </Card>
 
+      <ApprovalCard />
       <LiveTestCard config={config} />
       <OptimizationPanel />
       <RateLimiterCard />
@@ -621,9 +624,108 @@ export default function Configuration() {
   );
 }
 
+function ApprovalCard() {
+  const { toast } = useToast();
+  const { data: approvalStatus, isLoading, refetch } = useQuery<{
+    success: boolean;
+    usdcCtfExchange: string;
+    usdcNegRiskExchange: string;
+    ctfExchange: boolean;
+    ctfNegRiskAdapter: boolean;
+    allApproved: boolean;
+  }>({
+    queryKey: ["/api/trading/approval-status"],
+    refetchInterval: 30000,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/trading/approve");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "Aprobaciones completadas", description: `${data.results.filter((r: any) => !r.skipped).length} nuevas, ${data.results.filter((r: any) => r.skipped).length} ya aprobadas` });
+      } else {
+        toast({ title: "Error en aprobación", description: data.error, variant: "destructive" });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/trading/approval-status"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const StatusDot = ({ ok }: { ok: boolean }) => (
+    <span className={`inline-block w-2 h-2 rounded-full ${ok ? "bg-emerald-500" : "bg-destructive"}`} />
+  );
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Token Approvals</CardTitle>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isLoading} data-testid="button-refresh-approvals">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Polymarket requiere aprobación de USDC y Conditional Tokens para operar. Necesitas MATIC para gas (~$0.05).
+        </p>
+        {approvalStatus?.success && (
+          <div className="space-y-1.5 text-xs font-mono" data-testid="status-approval-list">
+            <div className="flex items-center justify-between" data-testid="status-approval-usdc-ctf">
+              <span className="flex items-center gap-1.5"><StatusDot ok={parseFloat(approvalStatus.usdcCtfExchange) > 1000000} /> USDC → CTF Exchange</span>
+              <span className="text-muted-foreground">{parseFloat(approvalStatus.usdcCtfExchange) > 1000000 ? "∞" : `$${approvalStatus.usdcCtfExchange}`}</span>
+            </div>
+            <div className="flex items-center justify-between" data-testid="status-approval-usdc-negrisk">
+              <span className="flex items-center gap-1.5"><StatusDot ok={parseFloat(approvalStatus.usdcNegRiskExchange) > 1000000} /> USDC → Neg Risk</span>
+              <span className="text-muted-foreground">{parseFloat(approvalStatus.usdcNegRiskExchange) > 1000000 ? "∞" : `$${approvalStatus.usdcNegRiskExchange}`}</span>
+            </div>
+            <div className="flex items-center justify-between" data-testid="status-approval-ctf-exchange">
+              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfExchange} /> CTF → Exchange</span>
+              <span className="text-muted-foreground">{approvalStatus.ctfExchange ? "OK" : "No"}</span>
+            </div>
+            <div className="flex items-center justify-between" data-testid="status-approval-ctf-negrisk">
+              <span className="flex items-center gap-1.5"><StatusDot ok={approvalStatus.ctfNegRiskAdapter} /> CTF → Neg Risk</span>
+              <span className="text-muted-foreground">{approvalStatus.ctfNegRiskAdapter ? "OK" : "No"}</span>
+            </div>
+          </div>
+        )}
+        {approvalStatus?.allApproved ? (
+          <div className="flex items-center gap-2 p-2.5 rounded-md bg-emerald-500/10 border border-emerald-500/30" data-testid="status-all-approved">
+            <CircleCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+            <span className="text-xs text-emerald-400">Todas las aprobaciones activas</span>
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => approveMutation.mutate()}
+            disabled={approveMutation.isPending}
+            data-testid="button-approve-usdc"
+          >
+            {approveMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+            ) : (
+              <KeyRound className="w-4 h-4 mr-1.5" />
+            )}
+            Approve All Tokens
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function LiveTestCard({ config }: { config?: BotConfig }) {
   const { toast } = useToast();
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string; stage?: string; details?: any; results?: any } | null>(null);
 
   const testMutation = useMutation({
     mutationFn: async () => {
@@ -632,17 +734,24 @@ function LiveTestCard({ config }: { config?: BotConfig }) {
     },
     onSuccess: (data) => {
       setTestResult(data);
+      const description = data.success
+        ? "Order placed and cancelled successfully"
+        : (data.error || data.message || `Failed at stage: ${data.stage}`);
       toast({
         title: data.success ? "Test passed" : "Test failed",
-        description: data.message,
+        description,
         variant: data.success ? "default" : "destructive",
       });
     },
     onError: (err: Error) => {
-      setTestResult({ success: false, message: err.message });
+      setTestResult({ success: false, error: err.message });
       toast({ title: "Test error", description: err.message, variant: "destructive" });
     },
   });
+
+  const errorMessage = testResult && !testResult.success
+    ? (testResult.error || testResult.message || `Failed at stage: ${testResult.stage}`)
+    : null;
 
   return (
     <Card>
@@ -685,7 +794,17 @@ function LiveTestCard({ config }: { config?: BotConfig }) {
             )}
             <div>
               <p className="text-sm font-medium">{testResult.success ? "Test Passed" : "Test Failed"}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{testResult.message}</p>
+              {testResult.success && testResult.results && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Order {testResult.results.exchangeOrderId?.slice(0, 12)}... placed & cancelled
+                </p>
+              )}
+              {errorMessage && (
+                <p className="text-xs text-destructive/80 mt-0.5 break-all">{errorMessage}</p>
+              )}
+              {testResult.stage && !testResult.success && (
+                <p className="text-xs text-muted-foreground mt-0.5">Stage: {testResult.stage}</p>
+              )}
             </div>
           </div>
         )}

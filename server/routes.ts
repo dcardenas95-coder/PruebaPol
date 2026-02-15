@@ -553,6 +553,43 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/trading/approval-status", async (_req, res) => {
+    try {
+      if (!liveTradingClient.isInitialized()) {
+        const initResult = await liveTradingClient.initialize();
+        if (!initResult.success) {
+          return res.status(400).json({ success: false, error: initResult.error });
+        }
+      }
+      const status = await liveTradingClient.getApprovalStatus();
+      if (!status) {
+        return res.status(400).json({ success: false, error: "Could not check approval status" });
+      }
+      const allApproved = parseFloat(status.usdcCtfExchange) > 1000000 &&
+        parseFloat(status.usdcNegRiskExchange) > 1000000 &&
+        status.ctfExchange &&
+        status.ctfNegRiskAdapter;
+      res.json({ success: true, ...status, allApproved });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post("/api/trading/approve", async (_req, res) => {
+    try {
+      if (!liveTradingClient.isInitialized()) {
+        const initResult = await liveTradingClient.initialize();
+        if (!initResult.success) {
+          return res.status(400).json({ success: false, error: initResult.error });
+        }
+      }
+      const result = await liveTradingClient.approveAll();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.post("/api/trading/test-live", async (_req, res) => {
     try {
       if (!liveTradingClient.isInitialized()) {
