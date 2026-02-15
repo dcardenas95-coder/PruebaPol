@@ -506,19 +506,59 @@ export class OrderManager {
     }
   }
 
-  async simulateFill(orderId: string): Promise<{ filled: boolean; pnl: number }> {
+  private paperFillTicks: Map<string, number> = new Map();
+  private readonly REQUIRED_CROSSING_TICKS = 2;
+  private readonly POLYMARKET_FEE_RATE = 0.001;
+
+  async simulateFill(orderId: string, marketData?: { bestBid: number; bestAsk: number; bidDepth: number; askDepth: number }): Promise<{ filled: boolean; pnl: number }> {
     const order = await storage.getOrderById(orderId);
     if (!order || order.status === "FILLED" || order.status === "CANCELLED" || order.status === "REJECTED") {
+      this.paperFillTicks.delete(orderId);
       return { filled: false, pnl: 0 };
     }
 
-    const fillChance = Math.random();
-    if (fillChance < 0.3) return { filled: false, pnl: 0 };
+    if (!marketData) {
+      return { filled: false, pnl: 0 };
+    }
+
+    let priceCrossed = false;
+    if (order.side === "BUY") {
+      priceCrossed = marketData.bestAsk <= order.price;
+    } else {
+      priceCrossed = marketData.bestBid >= order.price;
+    }
+
+    if (!priceCrossed) {
+      this.paperFillTicks.delete(orderId);
+      return { filled: false, pnl: 0 };
+    }
+
+    const currentTicks = (this.paperFillTicks.get(orderId) || 0) + 1;
+    this.paperFillTicks.set(orderId, currentTicks);
+
+    if (currentTicks < this.REQUIRED_CROSSING_TICKS) {
+      return { filled: false, pnl: 0 };
+    }
+
+    this.paperFillTicks.delete(orderId);
+
+    const depth = order.side === "BUY" ? marketData.askDepth : marketData.bidDepth;
+    const depthFactor = Math.min(1, depth / 100);
+    if (Math.random() > depthFactor) {
+      return { filled: false, pnl: 0 };
+    }
 
     const fillSize = order.size - order.filledSize;
-    const slippage = (Math.random() - 0.5) * 0.002;
-    const fillPrice = parseFloat((order.price + slippage).toFixed(4));
-    const fee = parseFloat((fillSize * fillPrice * 0.001).toFixed(4));
+    let fillPrice: number;
+    if (order.side === "BUY") {
+      const slippage = 0.001 + Math.random() * 0.002;
+      fillPrice = parseFloat(Math.min(order.price + slippage, marketData.bestAsk).toFixed(4));
+    } else {
+      const slippage = 0.001 + Math.random() * 0.002;
+      fillPrice = parseFloat(Math.max(order.price - slippage, marketData.bestBid).toFixed(4));
+    }
+
+    const fee = parseFloat((fillSize * fillPrice * this.POLYMARKET_FEE_RATE).toFixed(4));
 
     await storage.createFill({
       orderId: order.id,
@@ -534,7 +574,7 @@ export class OrderManager {
 
     await storage.createEvent({
       type: "ORDER_FILLED",
-      message: `[PAPER] Order filled: ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${order.side})`,
+      message: `[PAPER] Order filled: ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${order.side}) [fee: $${fee.toFixed(4)}]`,
       data: { orderId, fillPrice, fillSize, side: order.side, fee },
       level: "info",
     });

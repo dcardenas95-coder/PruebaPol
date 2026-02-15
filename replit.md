@@ -83,6 +83,7 @@ Tables: bot_config (with negRisk/tickSize), orders (with exchangeOrderId), fills
 - **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (últimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posición, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posición está en zona de riesgo ($0.30-$0.70). Evaluar después de tener datos de win rate con la estrategia actual.
 
 ## Recent Changes
+- 2026-02-15: Realistic paper trading simulator: fills only when price crosses order (BUY fills when bestAsk <= order price, SELL fills when bestBid >= order price), requires 2 consecutive crossing ticks before fill, depth-based fill probability, adverse slippage, 0.1% Polymarket fee simulation
 - 2026-02-15: Added optimization analytics panel in Configuration page - shows win rate, PnL/trade, TP fill rate, BUY fill rate, spread captured, forced exit rate, and auto-generates parameter suggestions based on real trading data
 - 2026-02-15: Added /api/analytics/optimization endpoint computing performance metrics from orders, fills, and pnl_records tables
 - 2026-02-15: Graceful liquidation on manual stop - when bot is stopped with open positions, enters LIQUIDATING mode: cancels BUY orders, attempts break-even exit for 60s, then force-crosses spread. Bot only transitions to STOPPED when all positions are closed. Dashboard shows orange liquidation banner with progress bar.

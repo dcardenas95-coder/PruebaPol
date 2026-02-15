@@ -346,9 +346,16 @@ export class StrategyEngine {
       }
 
       if (config.isPaperTrading) {
+        let liqData: MarketData | null = null;
+        try { liqData = await this.marketData.getData(); } catch (_) {}
         const activeOrders = await this.orderManager.getActiveOrders();
         for (const order of activeOrders) {
-          await this.orderManager.simulateFill(order.id);
+          await this.orderManager.simulateFill(order.id, liqData ? {
+            bestBid: liqData.bestBid,
+            bestAsk: liqData.bestAsk,
+            bidDepth: liqData.bidDepth,
+            askDepth: liqData.askDepth,
+          } : undefined);
         }
       } else {
         await this.orderManager.pollLiveOrderStatuses();
@@ -581,7 +588,12 @@ export class StrategyEngine {
       if (config.isPaperTrading) {
         const activeOrders = await this.orderManager.getActiveOrders();
         for (const order of activeOrders) {
-          const result = await this.orderManager.simulateFill(order.id);
+          const result = await this.orderManager.simulateFill(order.id, {
+            bestBid: data.bestBid,
+            bestAsk: data.bestAsk,
+            bidDepth: data.bidDepth,
+            askDepth: data.askDepth,
+          });
           if (result.filled && result.pnl !== 0) {
             this.riskManager.recordTradeResult(result.pnl);
             await this.updateDailyPnl(result.pnl, result.pnl > 0);
