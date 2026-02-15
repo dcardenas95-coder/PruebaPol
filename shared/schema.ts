@@ -30,6 +30,9 @@ export const botConfig = pgTable("bot_config", {
   currentMarketSlug: text("current_market_slug"),
   currentMarketNegRisk: boolean("current_market_neg_risk").notNull().default(false),
   currentMarketTickSize: text("current_market_tick_size").notNull().default("0.01"),
+  autoRotate: boolean("auto_rotate").notNull().default(false),
+  autoRotateAsset: text("auto_rotate_asset").notNull().default("btc"),
+  autoRotateInterval: text("auto_rotate_interval").notNull().default("5m"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -285,6 +288,9 @@ export const updateBotConfigSchema = z.object({
   currentMarketSlug: z.string().optional(),
   currentMarketNegRisk: z.boolean().optional(),
   currentMarketTickSize: z.string().optional(),
+  autoRotate: z.boolean().optional(),
+  autoRotateAsset: z.string().optional(),
+  autoRotateInterval: z.string().optional(),
 });
 
 export type UpdateBotConfig = z.infer<typeof updateBotConfigSchema>;
