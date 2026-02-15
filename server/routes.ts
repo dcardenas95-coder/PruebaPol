@@ -26,6 +26,32 @@ export async function registerRoutes(
 
       const de5m = dualEntry5mEngine.getStatus();
       const cycle = de5m.currentCycle;
+
+      let de5mCfg = de5m.config;
+      if (!de5mCfg) {
+        try {
+          const [dbCfgRow] = await db.select().from(dualEntryConfig).limit(1);
+          if (dbCfgRow) {
+            de5mCfg = {
+              marketTokenYes: dbCfgRow.marketTokenYes ?? "",
+              marketTokenNo: dbCfgRow.marketTokenNo ?? "",
+              marketSlug: dbCfgRow.marketSlug ?? "",
+              negRisk: dbCfgRow.negRisk,
+              tickSize: dbCfgRow.tickSize,
+              entryPrice: dbCfgRow.entryPrice,
+              tpPrice: dbCfgRow.tpPrice,
+              scratchPrice: dbCfgRow.scratchPrice,
+              orderSize: dbCfgRow.orderSize,
+              isDryRun: dbCfgRow.isDryRun,
+              dualTpMode: dbCfgRow.dualTpMode,
+              autoRotate5m: dbCfgRow.autoRotate5m,
+              autoRotate5mAsset: dbCfgRow.autoRotate5mAsset,
+              autoRotateInterval: dbCfgRow.autoRotateInterval,
+            } as any;
+          }
+        } catch (_) {}
+      }
+
       const dualEntry5mInfo: DualEntry5mInfo = {
         isRunning: de5m.isRunning,
         currentCycle: cycle ? {
@@ -49,35 +75,26 @@ export async function registerRoutes(
         } as DualEntry5mCycleInfo : null,
         nextWindowStart: de5m.nextWindowStart ? (de5m.nextWindowStart instanceof Date ? de5m.nextWindowStart.toISOString() : String(de5m.nextWindowStart)) : null,
         activeCycles: de5m.activeCycles,
-        marketSlug: de5m.config?.marketSlug ?? null,
+        marketSlug: de5mCfg?.marketSlug ?? null,
         marketQuestion: null,
-        asset: de5m.config?.autoRotate5mAsset ?? null,
-        interval: de5m.config?.autoRotateInterval ?? null,
-        isDryRun: de5m.config?.isDryRun ?? true,
-        dualTpMode: de5m.config?.dualTpMode ?? false,
-        autoRotate: de5m.config?.autoRotate5m ?? true,
-        orderSize: de5m.config?.orderSize ?? 5,
-        entryPrice: de5m.config?.entryPrice ?? 0.50,
-        tpPrice: de5m.config?.tpPrice ?? 0.55,
-        scratchPrice: de5m.config?.scratchPrice ?? 0.49,
+        asset: de5mCfg?.autoRotate5mAsset ?? null,
+        interval: de5mCfg?.autoRotateInterval ?? null,
+        isDryRun: de5mCfg?.isDryRun ?? true,
+        dualTpMode: de5mCfg?.dualTpMode ?? false,
+        autoRotate: de5mCfg?.autoRotate5m ?? true,
+        orderSize: de5mCfg?.orderSize ?? 5,
+        entryPrice: de5mCfg?.entryPrice ?? 0.50,
+        tpPrice: de5mCfg?.tpPrice ?? 0.55,
+        scratchPrice: de5mCfg?.scratchPrice ?? 0.49,
       };
 
       let marketData = status.marketData;
       let isLiveData = status.isLiveData;
-      if (!marketData) {
-        let tokenYes = de5m.config?.marketTokenYes;
-        if (!tokenYes) {
-          try {
-            const [dbCfg] = await db.select().from(dualEntryConfig).limit(1);
-            tokenYes = dbCfg?.marketTokenYes ?? undefined;
-          } catch (_) {}
-        }
-        if (tokenYes) {
-          try {
-            marketData = await polymarketClient.fetchMarketData(tokenYes);
-            isLiveData = !!marketData;
-          } catch (_) {}
-        }
+      if (!marketData && de5mCfg?.marketTokenYes) {
+        try {
+          marketData = await polymarketClient.fetchMarketData(de5mCfg.marketTokenYes);
+          isLiveData = !!marketData;
+        } catch (_) {}
       }
 
       res.json({ ...status, marketData, isLiveData, dualEntry5m: dualEntry5mInfo });
@@ -145,7 +162,7 @@ export async function registerRoutes(
         if (!result.success) {
           return res.status(400).json({ error: result.error || "Failed to start dual-entry 5m engine" });
         }
-        await storage.updateBotConfig({ isActive: true });
+        await storage.updateBotConfig({ isActive: true, currentState: "RUNNING" });
       } else if (shouldStop) {
         await dualEntry5mEngine.stop();
         try { await strategyEngine.stop(); } catch (_) {}

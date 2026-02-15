@@ -4,7 +4,7 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const botStateEnum = pgEnum("bot_state", ["MAKING", "UNWIND", "CLOSE_ONLY", "HEDGE_LOCK", "DONE", "STOPPED"]);
+export const botStateEnum = pgEnum("bot_state", ["MAKING", "UNWIND", "CLOSE_ONLY", "HEDGE_LOCK", "DONE", "STOPPED", "RUNNING"]);
 export const orderStatusEnum = pgEnum("order_status", ["PENDING", "OPEN", "PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED"]);
 export const orderSideEnum = pgEnum("order_side", ["BUY", "SELL"]);
 export const eventTypeEnum = pgEnum("event_type", [
@@ -272,7 +272,7 @@ export type UpdateDualEntryConfig = z.infer<typeof updateDualEntryConfigSchema>;
 export const updateBotConfigSchema = z.object({
   isActive: z.boolean().optional(),
   isPaperTrading: z.boolean().optional(),
-  currentState: z.enum(["MAKING", "UNWIND", "CLOSE_ONLY", "HEDGE_LOCK", "DONE", "STOPPED"]).optional(),
+  currentState: z.enum(["MAKING", "UNWIND", "CLOSE_ONLY", "HEDGE_LOCK", "DONE", "STOPPED", "RUNNING"]).optional(),
   minSpread: z.number().min(0.01).max(0.5).optional(),
   targetProfitMin: z.number().min(0.01).max(0.5).optional(),
   targetProfitMax: z.number().min(0.01).max(1.0).optional(),
