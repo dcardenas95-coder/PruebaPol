@@ -21,27 +21,24 @@ export interface Market5mInfo {
 
 export type AssetType = "btc" | "eth" | "sol" | "xrp" | "doge" | "bnb" | "link" | "mstr";
 
-function getSlugPrefix(asset: AssetType): string {
-  const prefixes: Record<AssetType, string> = {
-    btc: "btc-updown-5m",
-    eth: "eth-updown-5m",
-    sol: "sol-updown-5m",
-    xrp: "xrp-updown-5m",
-    doge: "doge-updown-5m",
-    bnb: "bnb-updown-5m",
-    link: "link-updown-5m",
-    mstr: "mstr-updown-5m",
-  };
-  return prefixes[asset] || "btc-updown-5m";
+export type IntervalType = "5m" | "15m";
+
+function getSlugPrefix(asset: AssetType, interval: IntervalType = "5m"): string {
+  return `${asset}-updown-${interval}`;
 }
 
-function getCurrentIntervalTimestamp(): number {
+function getIntervalSeconds(interval: IntervalType): number {
+  return interval === "15m" ? 900 : 300;
+}
+
+function getCurrentIntervalTimestamp(interval: IntervalType = "5m"): number {
   const now = Math.floor(Date.now() / 1000);
-  return now - (now % 300);
+  const sec = getIntervalSeconds(interval);
+  return now - (now % sec);
 }
 
-function getNextIntervalTimestamp(): number {
-  return getCurrentIntervalTimestamp() + 300;
+function getNextIntervalTimestamp(interval: IntervalType = "5m"): number {
+  return getCurrentIntervalTimestamp(interval) + getIntervalSeconds(interval);
 }
 
 async function fetchEventBySlug(slug: string): Promise<any | null> {
@@ -57,7 +54,7 @@ async function fetchEventBySlug(slug: string): Promise<any | null> {
   }
 }
 
-function parseEvent(event: any): Market5mInfo | null {
+function parseEvent(event: any, interval: IntervalType = "5m"): Market5mInfo | null {
   if (!event || !event.markets || event.markets.length === 0) return null;
 
   const market = event.markets[0];
@@ -82,7 +79,7 @@ function parseEvent(event: any): Market5mInfo | null {
 
   const slugParts = event.slug?.split("-") || [];
   const timestamp = parseInt(slugParts[slugParts.length - 1]) || 0;
-  const intervalEnd = timestamp + 300;
+  const intervalEnd = timestamp + getIntervalSeconds(interval);
   const now = Math.floor(Date.now() / 1000);
 
   return {
@@ -105,35 +102,40 @@ function parseEvent(event: any): Market5mInfo | null {
   };
 }
 
-export async function fetchCurrent5mMarket(asset: AssetType = "btc"): Promise<Market5mInfo | null> {
-  const prefix = getSlugPrefix(asset);
-  const currentTs = getCurrentIntervalTimestamp();
-  const nextTs = getNextIntervalTimestamp();
+export async function fetchCurrentIntervalMarket(asset: AssetType = "btc", interval: IntervalType = "5m"): Promise<Market5mInfo | null> {
+  const prefix = getSlugPrefix(asset, interval);
+  const sec = getIntervalSeconds(interval);
+  const currentTs = getCurrentIntervalTimestamp(interval);
+  const nextTs = getNextIntervalTimestamp(interval);
 
   const currentSlug = `${prefix}-${currentTs}`;
   let event = await fetchEventBySlug(currentSlug);
   if (event) {
-    const info = parseEvent(event);
+    const info = parseEvent(event, interval);
     if (info && !info.closed) return info;
   }
 
   const nextSlug = `${prefix}-${nextTs}`;
   event = await fetchEventBySlug(nextSlug);
   if (event) {
-    const info = parseEvent(event);
+    const info = parseEvent(event, interval);
     if (info) return info;
   }
 
-  const prevTs = currentTs - 300;
+  const prevTs = currentTs - sec;
   const prevSlug = `${prefix}-${prevTs}`;
   event = await fetchEventBySlug(prevSlug);
   if (event) {
-    const info = parseEvent(event);
+    const info = parseEvent(event, interval);
     if (info && !info.closed) return info;
   }
 
-  console.log(`[Market5mDiscovery] No active 5m market found for ${asset}. Tried: ${currentSlug}, ${nextSlug}, ${prevSlug}`);
+  console.log(`[MarketDiscovery] No active ${interval} market found for ${asset}. Tried: ${currentSlug}, ${nextSlug}, ${prevSlug}`);
   return null;
+}
+
+export async function fetchCurrent5mMarket(asset: AssetType = "btc"): Promise<Market5mInfo | null> {
+  return fetchCurrentIntervalMarket(asset, "5m");
 }
 
 export async function fetchUpcoming5mMarkets(asset: AssetType = "btc", count: number = 3): Promise<Market5mInfo[]> {
@@ -157,9 +159,9 @@ export async function fetchUpcoming5mMarkets(asset: AssetType = "btc", count: nu
   return results;
 }
 
-export function computeNextIntervalSlug(asset: AssetType = "btc"): { slug: string; startsInMs: number; intervalStart: number } {
-  const prefix = getSlugPrefix(asset);
-  const nextTs = getNextIntervalTimestamp();
+export function computeNextIntervalSlug(asset: AssetType = "btc", interval: IntervalType = "5m"): { slug: string; startsInMs: number; intervalStart: number } {
+  const prefix = getSlugPrefix(asset, interval);
+  const nextTs = getNextIntervalTimestamp(interval);
   const now = Math.floor(Date.now() / 1000);
   return {
     slug: `${prefix}-${nextTs}`,

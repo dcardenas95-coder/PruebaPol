@@ -83,6 +83,7 @@ export interface StrategyConfig {
   dualTpMode: boolean;
   autoRotate5m: boolean;
   autoRotate5mAsset: string;
+  autoRotateInterval: string;
 }
 
 export interface MarketSlot {

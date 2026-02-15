@@ -4,10 +4,11 @@ import { eq, desc, sql } from "drizzle-orm";
 import { liveTradingClient } from "../../bot/live-trading-client";
 import { polymarketClient } from "../../bot/polymarket-client";
 import { volatilityTracker } from "./volatility-tracker";
-import { fetchCurrent5mMarket, type AssetType } from "./market-5m-discovery";
+import { fetchCurrentIntervalMarket, type AssetType, type IntervalType } from "./market-5m-discovery";
 import type { CycleState, CycleContext, CycleLogEntry, StrategyConfig, EngineStatus, MarketSlot } from "./types";
 
-const WINDOW_DURATION_MS = 5 * 60 * 1000;
+const WINDOW_DURATION_5M_MS = 5 * 60 * 1000;
+const WINDOW_DURATION_15M_MS = 15 * 60 * 1000;
 
 export class DualEntry5mEngine {
   private running = false;
@@ -16,8 +17,17 @@ export class DualEntry5mEngine {
   private mainLoopInterval: ReturnType<typeof setInterval> | null = null;
   private cycleCounter = 0;
   private dedupeKeys = new Set<string>();
-  private current5mSlug: string | null = null;
+  private currentMarketSlug: string | null = null;
   private lastRotateCheck = 0;
+
+  private getWindowDurationMs(): number {
+    const interval = this.config?.autoRotateInterval || "5m";
+    return interval === "15m" ? WINDOW_DURATION_15M_MS : WINDOW_DURATION_5M_MS;
+  }
+
+  private getInterval(): IntervalType {
+    return (this.config?.autoRotateInterval === "15m" ? "15m" : "5m") as IntervalType;
+  }
 
   async start(): Promise<{ success: boolean; error?: string }> {
     if (this.running) return { success: false, error: "Already running" };
@@ -26,14 +36,15 @@ export class DualEntry5mEngine {
     if (!cfg) return { success: false, error: "No config found" };
 
     if (cfg.autoRotate5m) {
-      const market = await fetchCurrent5mMarket(cfg.autoRotate5mAsset as AssetType);
+      const interval = (cfg.autoRotateInterval === "15m" ? "15m" : "5m") as IntervalType;
+      const market = await fetchCurrentIntervalMarket(cfg.autoRotate5mAsset as AssetType, interval);
       if (market) {
         cfg.marketTokenYes = market.tokenUp;
         cfg.marketTokenNo = market.tokenDown;
         cfg.marketSlug = market.slug;
         cfg.negRisk = market.negRisk;
         cfg.tickSize = String(market.tickSize);
-        this.current5mSlug = market.slug;
+        this.currentMarketSlug = market.slug;
 
         const row = await this.getConfigRow();
         await db.update(dualEntryConfig).set({
@@ -46,9 +57,9 @@ export class DualEntry5mEngine {
           updatedAt: new Date(),
         }).where(eq(dualEntryConfig.id, row.id));
 
-        this.log("AUTO_ROTATE", `Auto-selected 5m market: ${market.slug} (${market.question})`);
+        this.log("AUTO_ROTATE", `Auto-selected ${interval} market: ${market.slug} (${market.question})`);
       } else {
-        this.log("AUTO_ROTATE", "No active 5m market found at start — will use existing config tokens and rotate when available");
+        this.log("AUTO_ROTATE", `No active ${interval} market found at start — will use existing config tokens and rotate when available`);
       }
     }
 
@@ -144,7 +155,7 @@ export class DualEntry5mEngine {
 
     try {
       if (this.config.autoRotate5m) {
-        await this.maybeRotate5mMarket();
+        await this.maybeRotateMarket();
       }
 
       const marketSlots = this.getMarketSlots();
@@ -172,7 +183,7 @@ export class DualEntry5mEngine {
     }
   }
 
-  private async maybeRotate5mMarket(): Promise<void> {
+  private async maybeRotateMarket(): Promise<void> {
     if (!this.config || !this.config.autoRotate5m) return;
 
     const now = Date.now();
@@ -181,15 +192,17 @@ export class DualEntry5mEngine {
 
     if (this.currentCycles.size > 0) return;
 
-    const market = await fetchCurrent5mMarket(this.config.autoRotate5mAsset as AssetType);
+    const interval = this.getInterval();
+    const market = await fetchCurrentIntervalMarket(this.config.autoRotate5mAsset as AssetType, interval);
     if (!market) return;
 
-    if (market.slug === this.current5mSlug) return;
+    if (market.slug === this.currentMarketSlug) return;
 
     if (market.closed || !market.acceptingOrders) return;
-    if (market.timeRemainingMs < 30000) return;
+    const minRemaining = interval === "15m" ? 60000 : 30000;
+    if (market.timeRemainingMs < minRemaining) return;
 
-    this.current5mSlug = market.slug;
+    this.currentMarketSlug = market.slug;
     this.config.marketTokenYes = market.tokenUp;
     this.config.marketTokenNo = market.tokenDown;
     this.config.marketSlug = market.slug;
@@ -209,7 +222,7 @@ export class DualEntry5mEngine {
 
     volatilityTracker.updateTokens(market.tokenUp, market.tokenDown);
 
-    this.log("AUTO_ROTATE", `Rotated to new 5m market: ${market.slug} | ${market.question} | remaining: ${(market.timeRemainingMs / 1000).toFixed(0)}s`);
+    this.log("AUTO_ROTATE", `Rotated to new ${interval} market: ${market.slug} | ${market.question} | remaining: ${(market.timeRemainingMs / 1000).toFixed(0)}s`);
   }
 
   private getMarketSlots(): Array<{ key: string; tokenYes: string; tokenNo: string; negRisk: boolean; tickSize: string }> {
@@ -350,7 +363,7 @@ export class DualEntry5mEngine {
       cycleNumber,
       state: "ARMED",
       windowStart,
-      windowEnd: new Date(windowStart.getTime() + WINDOW_DURATION_MS),
+      windowEnd: new Date(windowStart.getTime() + this.getWindowDurationMs()),
       isDryRun: this.config!.isDryRun,
       hourOfDay: new Date().getUTCHours(),
       dayOfWeek: new Date().getUTCDay(),
@@ -975,8 +988,8 @@ export class DualEntry5mEngine {
 
   private getNextWindowStart(): Date {
     const now = Date.now();
-    const fiveMin = WINDOW_DURATION_MS;
-    const nextBoundary = Math.ceil(now / fiveMin) * fiveMin;
+    const windowMs = this.getWindowDurationMs();
+    const nextBoundary = Math.ceil(now / windowMs) * windowMs;
     return new Date(nextBoundary);
   }
 
@@ -1039,6 +1052,7 @@ export class DualEntry5mEngine {
       dualTpMode: c.dualTpMode,
       autoRotate5m: c.autoRotate5m,
       autoRotate5mAsset: c.autoRotate5mAsset || "btc",
+      autoRotateInterval: c.autoRotateInterval || "5m",
     };
   }
 

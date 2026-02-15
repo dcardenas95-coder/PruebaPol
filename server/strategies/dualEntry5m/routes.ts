@@ -3,7 +3,7 @@ import { db } from "../../db";
 import { dualEntryConfig, dualEntryCycles, updateDualEntryConfigSchema } from "@shared/schema";
 import { desc, sql, eq, and, isNotNull } from "drizzle-orm";
 import { dualEntry5mEngine } from "./engine";
-import { fetchCurrent5mMarket, fetchUpcoming5mMarkets, computeNextIntervalSlug, type AssetType } from "./market-5m-discovery";
+import { fetchCurrent5mMarket, fetchCurrentIntervalMarket, fetchUpcoming5mMarkets, computeNextIntervalSlug, type AssetType, type IntervalType } from "./market-5m-discovery";
 
 export const dualEntryRouter = Router();
 
@@ -166,11 +166,12 @@ dualEntryRouter.get("/analytics", async (_req, res) => {
 dualEntryRouter.get("/5m/current", async (req, res) => {
   try {
     const asset = (req.query.asset as AssetType) || "btc";
-    const market = await fetchCurrent5mMarket(asset);
+    const interval = (req.query.interval as IntervalType) || "5m";
+    const market = await fetchCurrentIntervalMarket(asset, interval);
     if (!market) {
-      return res.json({ found: false, market: null, next: computeNextIntervalSlug(asset) });
+      return res.json({ found: false, market: null, next: computeNextIntervalSlug(asset, interval) });
     }
-    res.json({ found: true, market, next: computeNextIntervalSlug(asset) });
+    res.json({ found: true, market, next: computeNextIntervalSlug(asset, interval) });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -190,9 +191,10 @@ dualEntryRouter.get("/5m/upcoming", async (req, res) => {
 dualEntryRouter.post("/5m/select", async (req, res) => {
   try {
     const asset = (req.query.asset as AssetType) || "btc";
-    const market = await fetchCurrent5mMarket(asset);
+    const interval = (req.query.interval as IntervalType) || "5m";
+    const market = await fetchCurrentIntervalMarket(asset, interval);
     if (!market) {
-      return res.status(404).json({ error: "No active 5m market found" });
+      return res.status(404).json({ error: `No active ${interval} market found` });
     }
 
     const rows = await db.select().from(dualEntryConfig).limit(1);

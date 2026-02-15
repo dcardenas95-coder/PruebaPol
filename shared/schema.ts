@@ -167,6 +167,7 @@ export const dualEntryConfig = pgTable("dual_entry_config", {
   dualTpMode: boolean("dual_tp_mode").notNull().default(false),
   autoRotate5m: boolean("auto_rotate_5m").notNull().default(false),
   autoRotate5mAsset: text("auto_rotate_5m_asset").notNull().default("btc"),
+  autoRotateInterval: text("auto_rotate_interval").notNull().default("5m"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -264,6 +265,7 @@ export const updateDualEntryConfigSchema = z.object({
   dualTpMode: z.boolean().optional(),
   autoRotate5m: z.boolean().optional(),
   autoRotate5mAsset: z.string().optional(),
+  autoRotateInterval: z.string().optional(),
 });
 export type UpdateDualEntryConfig = z.infer<typeof updateDualEntryConfigSchema>;
 

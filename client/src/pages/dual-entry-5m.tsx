@@ -128,10 +128,11 @@ interface Market5mData {
 
 function Market5mPanel({ config, form, setForm }: { config: DualEntryConfig | undefined; form: any; setForm: (fn: (s: any) => any) => void }) {
   const { toast } = useToast();
+  const selectedInterval = form.autoRotateInterval || "5m";
   const { data: current5m, isLoading } = useQuery<{ found: boolean; market: Market5mData | null; next: { slug: string; startsInMs: number } }>({
-    queryKey: ["/api/strategies/dual-entry-5m/5m/current", form.autoRotate5mAsset],
+    queryKey: ["/api/strategies/dual-entry-5m/5m/current", form.autoRotate5mAsset, selectedInterval],
     queryFn: async () => {
-      const res = await fetch(`/api/strategies/dual-entry-5m/5m/current?asset=${form.autoRotate5mAsset || "btc"}`);
+      const res = await fetch(`/api/strategies/dual-entry-5m/5m/current?asset=${form.autoRotate5mAsset || "btc"}&interval=${selectedInterval}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -159,13 +160,13 @@ function Market5mPanel({ config, form, setForm }: { config: DualEntryConfig | un
 
   const selectMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/strategies/dual-entry-5m/5m/select?asset=${form.autoRotate5mAsset || "btc"}`);
+      const res = await apiRequest("POST", `/api/strategies/dual-entry-5m/5m/select?asset=${form.autoRotate5mAsset || "btc"}&interval=${selectedInterval}`);
       return res.json();
     },
     onSuccess: (data) => {
       if (data.success) {
         queryClient.invalidateQueries({ queryKey: ["/api/strategies/dual-entry-5m/config"] });
-        toast({ title: "Mercado 5M seleccionado", description: data.market?.question });
+        toast({ title: `Mercado ${selectedInterval.toUpperCase()} seleccionado`, description: data.market?.question });
       } else {
         toast({ title: "Error", description: "No se pudo seleccionar", variant: "destructive" });
       }
@@ -176,40 +177,58 @@ function Market5mPanel({ config, form, setForm }: { config: DualEntryConfig | un
   const market = current5m?.market;
   const isCurrentMarket = market && config?.marketTokenYes === market.tokenUp;
   const assets = ["btc", "eth", "sol", "xrp", "doge"];
+  const intervals = ["5m", "15m"];
 
   return (
     <Card className="border-blue-500/20">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-blue-400" />
-          <CardTitle className="text-sm font-medium">Mercado 5 Minutos (Auto-descubrimiento)</CardTitle>
+          <CardTitle className="text-sm font-medium">Mercado Intervalo (Auto-descubrimiento)</CardTitle>
           <Badge variant="outline" className="text-[10px] ml-auto">LIVE</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label>Auto-rotaci\u00f3n de mercado 5M</Label>
+            <Label>Auto-rotación de mercado</Label>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Descubre y selecciona autom\u00e1ticamente el mercado de 5 minutos activo. El bot rota al siguiente intervalo cuando termina el actual.
+              Descubre y selecciona automáticamente el mercado activo. El bot rota al siguiente intervalo cuando termina el actual.
             </p>
           </div>
           <Switch checked={form.autoRotate5m} onCheckedChange={(v) => setForm((s: any) => ({ ...s, autoRotate5m: v }))} data-testid="switch-auto-rotate-5m" />
         </div>
 
-        <div className="flex gap-1.5">
-          {assets.map(a => (
-            <Button
-              key={a}
-              size="sm"
-              variant={form.autoRotate5mAsset === a ? "default" : "outline"}
-              className="text-xs h-7 px-2"
-              onClick={() => setForm((s: any) => ({ ...s, autoRotate5mAsset: a }))}
-              data-testid={`button-5m-asset-${a}`}
-            >
-              {a.toUpperCase()}
-            </Button>
-          ))}
+        <div className="flex gap-3 items-center">
+          <div className="flex gap-1.5">
+            {intervals.map(iv => (
+              <Button
+                key={iv}
+                size="sm"
+                variant={selectedInterval === iv ? "default" : "outline"}
+                className="text-xs h-7 px-3"
+                onClick={() => setForm((s: any) => ({ ...s, autoRotateInterval: iv }))}
+                data-testid={`button-interval-${iv}`}
+              >
+                {iv.toUpperCase()}
+              </Button>
+            ))}
+          </div>
+          <div className="w-px h-5 bg-border" />
+          <div className="flex gap-1.5">
+            {assets.map(a => (
+              <Button
+                key={a}
+                size="sm"
+                variant={form.autoRotate5mAsset === a ? "default" : "outline"}
+                className="text-xs h-7 px-2"
+                onClick={() => setForm((s: any) => ({ ...s, autoRotate5mAsset: a }))}
+                data-testid={`button-5m-asset-${a}`}
+              >
+                {a.toUpperCase()}
+              </Button>
+            ))}
+          </div>
         </div>
 
         {isLoading && <div className="flex justify-center p-3"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
@@ -553,7 +572,7 @@ export default function DualEntry5m() {
     momentumTpEnabled: false, momentumTpMin: 0.55, momentumTpMax: 0.75, momentumWindowMinutes: 5,
     dynamicSizeEnabled: false, dynamicSizeMin: 3, dynamicSizeMax: 20,
     hourFilterEnabled: false, hourFilterAllowed: [] as number[],
-    autoRotate5m: false, autoRotate5mAsset: "btc",
+    autoRotate5m: false, autoRotate5mAsset: "btc", autoRotateInterval: "5m" as string,
   });
 
   useEffect(() => {
@@ -576,6 +595,7 @@ export default function DualEntry5m() {
         hourFilterAllowed: (config.hourFilterAllowed as number[]) || [],
         autoRotate5m: config.autoRotate5m ?? false,
         autoRotate5mAsset: config.autoRotate5mAsset ?? "btc",
+        autoRotateInterval: config.autoRotateInterval ?? "5m",
       });
     }
   }, [config]);
