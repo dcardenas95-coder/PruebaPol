@@ -24,9 +24,9 @@ export interface OracleConfig {
 }
 
 const DEFAULT_CONFIG: OracleConfig = {
-  strongThreshold: 30,
-  weakThreshold: 15,
-  minConfidence: 0.60,
+  strongThreshold: 20,
+  weakThreshold: 10,
+  minConfidence: 0.50,
   enabled: true,
 };
 

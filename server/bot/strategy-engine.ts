@@ -180,76 +180,9 @@ export class StrategyEngine {
   }
 
   private setupTakeProfitCallback(config: BotConfig): void {
-    this.orderManager.onBuyFill(async (marketId, side, fillSize, avgEntryPrice, fillTokenId) => {
-      try {
-        const freshConfig = await storage.getBotConfig();
-        if (!freshConfig || !freshConfig.isActive) return;
-        const currentState = freshConfig.currentState as BotState;
-        if (currentState !== "MAKING" && currentState !== "UNWIND") return;
-
-        const tokenId = fillTokenId || freshConfig.currentMarketId || "";
-        const negRisk = freshConfig.currentMarketNegRisk ?? false;
-        const tickSize = freshConfig.currentMarketTickSize ?? "0.01";
-        if (!tokenId) return;
-
-        let exitPrice = this.marketData.getExitPrice(avgEntryPrice, freshConfig.targetProfitMin, freshConfig.targetProfitMax);
-
-        const oracleSignal = binanceOracle.getSignal();
-        if (binanceOracle.isConnected() && oracleSignal.confidence > 0.7) {
-          const confidenceBonus = (oracleSignal.confidence - 0.5) * 0.02;
-          exitPrice = parseFloat((exitPrice + confidenceBonus).toFixed(4));
-        }
-
-        const pos = fillTokenId
-          ? await storage.getPositionByToken(fillTokenId, "BUY")
-          : await storage.getPositionByMarket(marketId, "BUY");
-        if (!pos) return;
-
-        await storage.upsertPosition({
-          marketId: pos.marketId,
-          tokenId: pos.tokenId || tokenId,
-          side: pos.side,
-          size: pos.size,
-          avgEntryPrice: pos.avgEntryPrice,
-          targetExitPrice: exitPrice,
-          unrealizedPnl: pos.unrealizedPnl,
-          realizedPnl: pos.realizedPnl,
-        });
-
-        const activeOrders = await this.orderManager.getActiveOrders();
-        const existingTps = activeOrders.filter(o => o.side === "SELL" && (o.tokenId || o.marketId) === tokenId);
-
-        if (existingTps.length >= 4) return;
-
-        const tpCoveredSize = existingTps.reduce((sum, o) => sum + (o.size - o.filledSize), 0);
-        const uncoveredSize = pos.size - tpCoveredSize;
-
-        if (uncoveredSize < 0.5) return;
-
-        const tpSize = Math.min(uncoveredSize, freshConfig.orderSize);
-
-        const isTokenDown = fillTokenId && fillTokenId !== freshConfig.currentMarketId;
-        await storage.createEvent({
-          type: "ORDER_PLACED",
-          message: `[TP-IMMEDIATE] BUY filled → placing SELL TP: ${tpSize.toFixed(2)} @ $${exitPrice.toFixed(4)} (entry avg: $${avgEntryPrice.toFixed(4)}, uncovered: ${uncoveredSize.toFixed(2)}) [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
-          data: { avgEntryPrice, exitPrice, tpSize, uncoveredSize, existingTpCount: existingTps.length, tokenId },
-          level: "info",
-        });
-
-        await this.orderManager.placeOrder({
-          marketId,
-          tokenId,
-          side: "SELL",
-          price: exitPrice,
-          size: tpSize,
-          isPaperTrade: freshConfig.isPaperTrading,
-          negRisk,
-          tickSize,
-        });
-      } catch (err: any) {
-        console.error(`[StrategyEngine] Immediate TP placement error: ${err.message} | stack: ${err.stack?.split("\n")[1]?.trim() || "none"}`);
-      }
-    });
+    // HOLD-TO-RESOLUTION: TP callback desactivado
+    // Las posiciones se mantienen hasta que el mercado resuelve a $1.00 o $0.00
+    return;
   }
 
   private setupWebSocket(config: BotConfig): void {
@@ -702,38 +635,13 @@ export class StrategyEngine {
         }
         const stopLossResults = await stopLossManager.checkAllPositions(stopLossData, remaining, this.MARKET_DURATION);
         for (const sl of stopLossResults) {
+          // HOLD-TO-RESOLUTION: Log stop-loss alerts but do NOT sell — positions resolve at market close
           await storage.createEvent({
             type: "RISK_ALERT",
-            message: `[STOP-LOSS] ${sl.reason} | Position ${sl.marketId} entry=$${sl.entryPrice.toFixed(4)} current=$${sl.currentPrice.toFixed(4)} loss=${(sl.lossPct * 100).toFixed(1)}%`,
-            data: { ...sl },
+            message: `[STOP-LOSS] ${sl.reason} (logged only, no sell in hold-to-resolution) | Position ${sl.marketId} entry=$${sl.entryPrice.toFixed(4)} current=$${sl.currentPrice.toFixed(4)} loss=${(sl.lossPct * 100).toFixed(1)}%`,
+            data: { ...sl, holdToResolution: true },
             level: "warn",
           });
-
-          const activeOrders = await this.orderManager.getActiveOrders();
-          const tpOrders = activeOrders.filter(o => o.side === "SELL" && o.marketId === sl.marketId);
-          for (const tp of tpOrders) {
-            await this.orderManager.cancelOrder(tp.id);
-          }
-
-          const tokenId = config.currentMarketId || "";
-          const negRisk = config.currentMarketNegRisk ?? false;
-          const tickSize = config.currentMarketTickSize ?? "0.01";
-          if (tokenId && !tokenId.includes("sim")) {
-            const positions = await storage.getPositions();
-            const pos = positions.find(p => p.marketId === sl.marketId && p.size > 0);
-            if (pos) {
-              await this.orderManager.placeOrder({
-                marketId: sl.marketId,
-                tokenId,
-                side: "SELL",
-                price: sl.suggestedExitPrice,
-                size: pos.size,
-                isPaperTrade: config.isPaperTrading,
-                negRisk,
-                tickSize,
-              });
-            }
-          }
         }
       }
 
@@ -779,9 +687,9 @@ export class StrategyEngine {
     if (current === "STOPPED") return current;
     if (current === "DONE") return current;
     if (remainingMs <= 0) return "DONE";
-    if (remainingMs <= 45000) return "HEDGE_LOCK";
-    if (remainingMs <= 60000) return "CLOSE_ONLY";
-    if (remainingMs <= 120000) return "UNWIND";
+    if (remainingMs <= 15000) return "HEDGE_LOCK";
+    if (remainingMs <= 30000) return "CLOSE_ONLY";
+    if (remainingMs <= 60000) return "UNWIND";
     return "MAKING";
   }
 
@@ -890,11 +798,14 @@ export class StrategyEngine {
 
     const activeOrders = await this.orderManager.getActiveOrders();
     const entryOrders = activeOrders.filter(o => o.side === "BUY");
-    const tpOrders = activeOrders.filter(o => o.side === "SELL");
 
-    await this.ensureTakeProfitOrders(config, data, tpOrders, tokenId, marketId, negRisk, tickSize);
+    if (entryOrders.length >= 1) return;
 
-    if (entryOrders.length >= 3) return;
+    const positions = await storage.getPositions();
+    const existingPosition = positions.find(p => p.size > 0);
+    if (existingPosition) {
+      return;
+    }
 
     const oracleSignal = binanceOracle.getSignal();
     const oracleResult = this.getOracleAlignedSide(oracleSignal, config);
@@ -909,12 +820,80 @@ export class StrategyEngine {
       return;
     }
 
-    const sizerLevel = await progressiveSizer.getOrderSize(config.orderSize);
-    const effectiveSize = binanceOracle.isConnected()
-      ? parseFloat((sizerLevel.size * oracleResult.sizeMultiplier).toFixed(2))
-      : sizerLevel.size;
+    let effectiveTokenId = tokenId;
+    if (binanceOracle.isConnected() && oracleResult.tokenSide === "NO") {
+      const tokenDown = (config as any).currentMarketTokenDown;
+      if (tokenDown && tokenDown.length > 10 && !tokenDown.includes("sim")) {
+        effectiveTokenId = tokenDown;
+      }
+    }
 
-    const riskCheck = await this.riskManager.checkPreTrade(config, effectiveSize * data.bestBid);
+    let entryPrice = data.bestBid;
+    if (effectiveTokenId !== tokenId) {
+      const tokenDownData = await this.getTokenDownData(config);
+      if (tokenDownData) {
+        entryPrice = tokenDownData.bestBid;
+      } else {
+        await storage.createEvent({
+          type: "INFO",
+          message: `[ORACLE] Signal says NO but no tokenDown market data available — skipping`,
+          data: { signal: oracleSignal.direction },
+          level: "warn",
+        });
+        return;
+      }
+    }
+
+    const MAX_ENTRY_PRICE = 0.52;
+    const MIN_ENTRY_PRICE = 0.10;
+
+    if (entryPrice > MAX_ENTRY_PRICE) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `[STRATEGY] Entry price $${entryPrice.toFixed(3)} > max $${MAX_ENTRY_PRICE} — skipping (risk/reward unfavorable)`,
+        data: { filter: "maxPrice", entryPrice, maxAllowed: MAX_ENTRY_PRICE },
+        level: "info",
+      });
+      return;
+    }
+
+    if (entryPrice < MIN_ENTRY_PRICE) {
+      await storage.createEvent({
+        type: "INFO",
+        message: `[STRATEGY] Entry price $${entryPrice.toFixed(3)} < min $${MIN_ENTRY_PRICE} — skipping (likely stale data)`,
+        data: { filter: "minPrice", entryPrice, minAllowed: MIN_ENTRY_PRICE },
+        level: "info",
+      });
+      return;
+    }
+
+    const oracleConfidence = oracleSignal.confidence;
+    let effectiveSize: number;
+    let layer: string;
+
+    if (oracleSignal.strength === "STRONG" && oracleConfidence >= 0.70) {
+      const maxRisk = config.maxNetExposure * 0.05;
+      effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize).toFixed(2));
+      layer = "L1-STRONG";
+    } else if (oracleSignal.strength === "WEAK" && oracleConfidence >= 0.55) {
+      const maxRisk = config.maxNetExposure * 0.03;
+      effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize * 0.6).toFixed(2));
+      layer = "L2-MODERATE";
+    } else {
+      await storage.createEvent({
+        type: "INFO",
+        message: `[STRATEGY] Layer 3: Oracle too weak (confidence=${(oracleConfidence * 100).toFixed(0)}%, strength=${oracleSignal.strength}) — no trade`,
+        data: { filter: "layer3", confidence: oracleConfidence, strength: oracleSignal.strength },
+        level: "info",
+      });
+      return;
+    }
+
+    if (effectiveSize < 1) {
+      effectiveSize = 1;
+    }
+
+    const riskCheck = await this.riskManager.checkPreTrade(config, effectiveSize * entryPrice);
     if (!riskCheck.allowed) {
       await storage.createEvent({
         type: "RISK_ALERT",
@@ -943,7 +922,7 @@ export class StrategyEngine {
             usdcBalance = parseFloat(onChain.total);
           }
         }
-        const orderCost = effectiveSize * data.bestBid;
+        const orderCost = effectiveSize * entryPrice;
         if (usdcBalance < orderCost) {
           await storage.createEvent({
             type: "RISK_ALERT",
@@ -956,30 +935,6 @@ export class StrategyEngine {
       } catch (error: any) {
         await apiRateLimiter.recordError(error.message);
         console.error(`[Strategy] Balance check failed: ${error.message} | market=${config.currentMarketSlug} | mode=${config.isPaperTrading ? "PAPER" : "LIVE"} | stack: ${error.stack?.split("\n")[1]?.trim() || "none"}`);
-        return;
-      }
-    }
-
-    let effectiveTokenId = tokenId;
-    if (binanceOracle.isConnected() && oracleResult.tokenSide === "NO") {
-      const tokenDown = (config as any).currentMarketTokenDown;
-      if (tokenDown && tokenDown.length > 10 && !tokenDown.includes("sim")) {
-        effectiveTokenId = tokenDown;
-      }
-    }
-
-    let entryPrice = data.bestBid;
-    if (effectiveTokenId !== tokenId) {
-      const tokenDownData = await this.getTokenDownData(config);
-      if (tokenDownData) {
-        entryPrice = tokenDownData.bestBid;
-      } else {
-        await storage.createEvent({
-          type: "INFO",
-          message: `[ORACLE] Signal says NO but no tokenDown market data available — skipping`,
-          data: { signal: oracleSignal.direction },
-          level: "warn",
-        });
         return;
       }
     }
@@ -998,14 +953,28 @@ export class StrategyEngine {
         oracleConfidence: oracleSignal.confidence,
       });
 
-      if (binanceOracle.isConnected()) {
-        await storage.createEvent({
-          type: "INFO",
-          message: `[ORACLE] Entry: ${oracleResult.tokenSide} side, signal=${oracleSignal.direction}/${oracleSignal.strength} conf=${(oracleSignal.confidence * 100).toFixed(0)}% delta=$${oracleSignal.delta.toFixed(2)} | size=$${effectiveSize} (sizer L${sizerLevel.level} × ${oracleResult.sizeMultiplier}x) | regime=${regimeResult.regime} | token=${effectiveTokenId === tokenId ? "UP" : "DOWN"}`,
-          data: { oracle: oracleSignal, sizer: sizerLevel, regime: regimeResult.regime, effectiveSize, tokenSide: oracleResult.tokenSide, effectiveTokenId },
-          level: "info",
-        });
-      }
+      const expectedWin = (1.0 - entryPrice) * effectiveSize;
+      const expectedLoss = entryPrice * effectiveSize;
+      const rrRatio = ((1.0 - entryPrice) / entryPrice).toFixed(2);
+
+      await storage.createEvent({
+        type: "INFO",
+        message: `[${layer}] ENTRY: ${oracleResult.tokenSide} @ $${entryPrice.toFixed(3)} x ${effectiveSize} shares | Oracle: ${oracleSignal.direction}/${oracleSignal.strength} conf=${(oracleSignal.confidence * 100).toFixed(0)}% delta=$${oracleSignal.delta.toFixed(2)} | HOLD TO RESOLUTION | Win=$${expectedWin.toFixed(2)} / Loss=-$${expectedLoss.toFixed(2)} (R:R ${rrRatio}) | regime=${regimeResult.regime}`,
+        data: {
+          layer,
+          oracle: oracleSignal,
+          effectiveSize,
+          entryPrice,
+          expectedWin,
+          expectedLoss,
+          riskRewardRatio: rrRatio,
+          holdStrategy: "RESOLUTION",
+          tokenSide: oracleResult.tokenSide,
+          effectiveTokenId,
+          regime: regimeResult.regime,
+        },
+        level: "info",
+      });
     } catch (err: any) {
       if (err.message?.includes("regional restriction") || err.message?.includes("Access restricted") || err.message?.includes("GEO-BLOCKED")) {
         await storage.createEvent({
@@ -1029,218 +998,69 @@ export class StrategyEngine {
     negRisk: boolean,
     tickSize: string,
   ): Promise<void> {
-    const positions = await storage.getPositions();
-    const buyPositions = positions.filter(p => p.side === "BUY" && p.size > 0);
-
-    if (buyPositions.length === 0) return;
-
-    for (const pos of buyPositions) {
-      const tpForThisPos = existingTpOrders.filter(o => o.marketId === pos.marketId);
-      const tpCoveredSize = tpForThisPos.reduce((sum, o) => sum + (o.size - o.filledSize), 0);
-      const uncoveredSize = pos.size - tpCoveredSize;
-
-      if (uncoveredSize < 0.5) continue;
-
-      let exitPrice = pos.targetExitPrice;
-      const newExitPrice = this.marketData.getExitPrice(pos.avgEntryPrice, config.targetProfitMin, config.targetProfitMax);
-
-      if (!exitPrice || Math.abs(exitPrice - newExitPrice) > 0.005) {
-        exitPrice = newExitPrice;
-        await storage.upsertPosition({
-          marketId: pos.marketId,
-          side: pos.side,
-          size: pos.size,
-          avgEntryPrice: pos.avgEntryPrice,
-          targetExitPrice: exitPrice,
-          unrealizedPnl: pos.unrealizedPnl,
-          realizedPnl: pos.realizedPnl,
-        });
-
-        if (tpForThisPos.length > 0 && Math.abs((pos.targetExitPrice || 0) - exitPrice) > 0.005) {
-          for (const oldTp of tpForThisPos) {
-            await this.orderManager.cancelOrder(oldTp.id);
-          }
-          await storage.createEvent({
-            type: "INFO",
-            message: `[TP] Cancelled ${tpForThisPos.length} stale TP orders (entry avg changed, old TP: $${(pos.targetExitPrice || 0).toFixed(4)} → new: $${exitPrice.toFixed(4)})`,
-            data: { oldTp: pos.targetExitPrice, newTp: exitPrice, cancelled: tpForThisPos.length },
-            level: "info",
-          });
-        }
-      }
-
-      const tpSize = Math.min(uncoveredSize, config.orderSize);
-
-      if (existingTpOrders.length >= 4) return;
-
-      await storage.createEvent({
-        type: "ORDER_PLACED",
-        message: `[TP] Placing take-profit SELL: ${tpSize.toFixed(2)} @ $${exitPrice.toFixed(4)} (entry avg: $${pos.avgEntryPrice.toFixed(4)}, profit target: $${(exitPrice - pos.avgEntryPrice).toFixed(4)})`,
-        data: { entryPrice: pos.avgEntryPrice, exitPrice, size: tpSize, uncoveredSize, tpCoveredSize },
-        level: "info",
-      });
-
-      await this.orderManager.placeOrder({
-        marketId,
-        tokenId,
-        side: "SELL",
-        price: exitPrice,
-        size: tpSize,
-        isPaperTrade: config.isPaperTrading,
-        negRisk,
-        tickSize,
-      });
-    }
+    // HOLD-TO-RESOLUTION: No TP orders. Positions resolve at market close ($1.00 or $0.00)
+    return;
   }
 
   private async executeUnwind(config: BotConfig, data: MarketData): Promise<void> {
-    const positions = await storage.getPositions();
     const activeOrders = await this.orderManager.getActiveOrders();
-    if (activeOrders.length >= 2) return;
+    const buyOrders = activeOrders.filter(o => o.side === "BUY");
 
-    const tokenId = config.currentMarketId || "";
-    const negRisk = config.currentMarketNegRisk ?? false;
-    const tickSize = config.currentMarketTickSize ?? "0.01";
-
-    for (const pos of positions) {
-      if (pos.size > 0) {
-        const exitPrice = pos.side === "BUY"
-          ? data.bestAsk - 0.01
-          : data.bestBid + 0.01;
-
-        await this.orderManager.placeOrder({
-          marketId: pos.marketId,
-          tokenId,
-          side: pos.side === "BUY" ? "SELL" : "BUY",
-          price: Math.max(0.01, exitPrice),
-          size: parseFloat(pos.size.toFixed(2)),
-          isPaperTrade: config.isPaperTrading,
-          negRisk,
-          tickSize,
-        });
+    if (buyOrders.length > 0) {
+      for (const order of buyOrders) {
+        await this.orderManager.cancelOrder(order.id);
       }
+      await storage.createEvent({
+        type: "INFO",
+        message: `[UNWIND] Cancelled ${buyOrders.length} pending BUY orders — holding positions to resolution`,
+        data: { cancelledBuys: buyOrders.length },
+        level: "info",
+      });
+    }
+
+    const positions = await storage.getPositions();
+    const openPositions = positions.filter(p => p.size > 0);
+    if (openPositions.length > 0) {
+      const totalSize = openPositions.reduce((sum, p) => sum + p.size, 0);
+      const avgEntry = openPositions.reduce((sum, p) => sum + p.avgEntryPrice * p.size, 0) / totalSize;
+      await storage.createEvent({
+        type: "INFO",
+        message: `[UNWIND] Holding ${totalSize.toFixed(1)} shares @ avg $${avgEntry.toFixed(3)} to resolution (no selling)`,
+        data: { totalSize, avgEntry, positionCount: openPositions.length },
+        level: "info",
+      });
     }
   }
 
   private hedgeLockRepriceTimers: ReturnType<typeof setTimeout>[] = [];
 
   private async executeHedgeLock(config: BotConfig, data: MarketData): Promise<void> {
-    const positions = await storage.getPositions();
-    const openPositions = positions.filter(p => p.size > 0);
-
-    if (openPositions.length === 0) return;
-
-    const defaultTokenId = config.currentMarketId || "";
-    const negRisk = config.currentMarketNegRisk ?? false;
-    const tickSize = config.currentMarketTickSize ?? "0.01";
-
-    if (!defaultTokenId || defaultTokenId.includes("sim")) {
-      return;
-    }
-
     const activeOrders = await this.orderManager.getActiveOrders();
-    const existingExitOrders = activeOrders.filter(o =>
-      openPositions.some(p => {
-        const posToken = p.tokenId || p.marketId;
-        const orderToken = o.tokenId || o.marketId;
-        return orderToken === posToken && o.side !== p.side;
-      })
-    );
-    if (existingExitOrders.length > 0) {
-      return;
-    }
-
-    await this.orderManager.cancelAllOrders();
-
-    const remainingMs = this.getMarketRemainingMs();
-
-    for (const pos of openPositions) {
-      const exitSide = pos.side === "BUY" ? "SELL" : "BUY";
-      const posTokenId = pos.tokenId || defaultTokenId;
-      const isTokenDown = posTokenId !== defaultTokenId;
-
-      const urgency = remainingMs <= 20000 ? "CRITICAL" :
-                      remainingMs <= 30000 ? "HIGH" : "MEDIUM";
-      const priceOffset = urgency === "CRITICAL" ? 0.02 :
-                          urgency === "HIGH" ? 0.01 : 0.005;
-
-      const exitPrice = pos.side === "BUY"
-        ? Math.max(0.01, data.bestBid - priceOffset)
-        : Math.min(0.99, data.bestAsk + priceOffset);
-
+    if (activeOrders.length > 0) {
+      await this.orderManager.cancelAllOrders();
       await storage.createEvent({
         type: "INFO",
-        message: `[HEDGE_LOCK] Single exit order: ${exitSide} ${pos.size} @ $${exitPrice.toFixed(4)} (urgency=${urgency}, ${Math.floor(remainingMs / 1000)}s left) [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
-        data: { side: exitSide, price: exitPrice, size: pos.size, remainingMs, urgency, tokenId: posTokenId, isTokenDown },
-        level: "warn",
+        message: `[HEDGE_LOCK] Cancelled ${activeOrders.length} remaining orders — holding to resolution`,
+        data: { cancelledOrders: activeOrders.length },
+        level: "info",
       });
+    }
 
-      await this.orderManager.placeOrder({
-        marketId: pos.marketId,
-        tokenId: posTokenId,
-        side: exitSide,
-        price: exitPrice,
-        size: pos.size,
-        isPaperTrade: config.isPaperTrading,
-        negRisk,
-        tickSize,
-        isMakerOrder: false,
+    for (const t of this.hedgeLockRepriceTimers) clearTimeout(t);
+    this.hedgeLockRepriceTimers = [];
+
+    const positions = await storage.getPositions();
+    const openPositions = positions.filter(p => p.size > 0);
+    const remainingMs = this.getMarketRemainingMs();
+
+    if (openPositions.length > 0) {
+      const totalSize = openPositions.reduce((sum, p) => sum + p.size, 0);
+      await storage.createEvent({
+        type: "INFO",
+        message: `[HEDGE_LOCK] ${Math.floor(remainingMs / 1000)}s to resolution — holding ${totalSize.toFixed(1)} shares (no selling)`,
+        data: { totalSize, positionCount: openPositions.length, remainingMs },
+        level: "info",
       });
-
-      if (urgency !== "CRITICAL") {
-        const capturedTokenId = posTokenId;
-        const capturedMarketId = pos.marketId;
-        const capturedSide = pos.side;
-
-        const repriceAt5s = setTimeout(async () => {
-          try {
-            const freshPos = await storage.getPositions();
-            const still = freshPos.find(p => (p.tokenId || p.marketId) === capturedTokenId && p.size > 0);
-            if (!still) return;
-            const freshData = await this.marketData.getData();
-            await this.orderManager.cancelAllOrders();
-            const newPrice = capturedSide === "BUY"
-              ? Math.max(0.01, freshData.bestBid - 0.02)
-              : Math.min(0.99, freshData.bestAsk + 0.02);
-            await this.orderManager.placeOrder({
-              marketId: capturedMarketId, tokenId: capturedTokenId, side: exitSide,
-              price: newPrice, size: still.size,
-              isPaperTrade: config.isPaperTrading, negRisk, tickSize,
-              isMakerOrder: false,
-            });
-            await storage.createEvent({
-              type: "INFO",
-              message: `[HEDGE_LOCK] Re-priced exit: $${newPrice.toFixed(4)} (attempt 2) [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
-              data: { price: newPrice, size: still.size, tokenId: capturedTokenId },
-              level: "warn",
-            });
-          } catch {}
-        }, 5000);
-
-        const repriceAt10s = setTimeout(async () => {
-          try {
-            const freshPos = await storage.getPositions();
-            const still = freshPos.find(p => (p.tokenId || p.marketId) === capturedTokenId && p.size > 0);
-            if (!still) return;
-            await this.orderManager.cancelAllOrders();
-            const firePrice = capturedSide === "BUY" ? 0.01 : 0.99;
-            await this.orderManager.placeOrder({
-              marketId: capturedMarketId, tokenId: capturedTokenId, side: exitSide,
-              price: firePrice, size: still.size,
-              isPaperTrade: config.isPaperTrading, negRisk, tickSize,
-              isMakerOrder: false,
-            });
-            await storage.createEvent({
-              type: "INFO",
-              message: `[HEDGE_LOCK] Fire sale exit: $${firePrice.toFixed(2)} (attempt 3 - final) [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
-              data: { price: firePrice, size: still.size, tokenId: capturedTokenId },
-              level: "error",
-            });
-          } catch {}
-        }, 10000);
-
-        this.hedgeLockRepriceTimers.push(repriceAt5s, repriceAt10s);
-      }
     }
   }
 
@@ -1544,12 +1364,12 @@ export class StrategyEngine {
         isPaperTrading: true,
         currentState: "STOPPED",
         minSpread: 0.03,
-        targetProfitMin: 0.03,
-        targetProfitMax: 0.05,
-        maxNetExposure: 100,
+        targetProfitMin: 0.40,
+        targetProfitMax: 0.53,
+        maxNetExposure: 200,
         maxDailyLoss: 50,
         maxConsecutiveLosses: 3,
-        orderSize: 10,
+        orderSize: 5,
         killSwitchActive: false,
         currentMarketId: null,
         currentMarketSlug: null,
