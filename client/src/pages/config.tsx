@@ -72,7 +72,7 @@ function formatTimeRemaining(ms: number): string {
 function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketId?: string | null; currentMarketSlug?: string | null }) {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchMode, setSearchMode] = useState<"btc" | "search" | "5min" | "15min">("btc");
+  const [searchMode, setSearchMode] = useState<"btc" | "search" | "5min" | "15min">("5min");
 
   const { data: btcMarkets, isLoading: btcLoading } = useQuery<PolyMarket[]>({
     queryKey: ["/api/markets/btc"],
@@ -111,16 +111,16 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
   });
 
   const selectMutation = useMutation({
-    mutationFn: async (market: { tokenId: string; marketSlug: string; question: string; negRisk: boolean; tickSize: number }) => {
+    mutationFn: async (market: { tokenUp: string; tokenDown: string | null; marketSlug: string; question: string; negRisk: boolean; tickSize: number }) => {
       return apiRequest("POST", "/api/markets/select", market);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bot/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
-      toast({ title: "Market selected - live data connected" });
+      toast({ title: "Mercado seleccionado - datos en vivo conectados" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to select market", description: err.message, variant: "destructive" });
+      toast({ title: "Error al seleccionar mercado", description: err.message, variant: "destructive" });
     },
   });
 
@@ -131,13 +131,17 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
     }
   };
 
-  const handleSelectMarket = (market: PolyMarket, tokenIndex: number) => {
-    const tokenId = market.tokenIds[tokenIndex];
-    if (!tokenId) return;
+  const handleSelectMarket = (market: PolyMarket) => {
+    const upIdx = market.outcomes?.findIndex(o => o.toLowerCase() === "up" || o.toLowerCase() === "yes") ?? 0;
+    const downIdx = market.outcomes?.findIndex(o => o.toLowerCase() === "down" || o.toLowerCase() === "no") ?? 1;
+    const tokenUp = market.tokenIds[upIdx] || market.tokenIds[0];
+    const tokenDown = market.tokenIds[downIdx] || market.tokenIds[1] || null;
+    if (!tokenUp) return;
     selectMutation.mutate({
-      tokenId,
+      tokenUp,
+      tokenDown,
       marketSlug: market.slug,
-      question: `${market.question} (${market.outcomes[tokenIndex]})`,
+      question: market.question,
       negRisk: market.negRisk ?? false,
       tickSize: market.tickSize || 0.01,
     });
@@ -288,25 +292,40 @@ function MarketSelector({ currentMarketId, currentMarketSlug }: { currentMarketI
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2 flex-wrap">
-                {market.tokenIds?.map((tokenId, idx) => {
-                  const isSelected = tokenId === currentMarketId;
-                  const outcome = market.outcomes?.[idx] || `Token ${idx + 1}`;
-                  const price = market.outcomePrices?.[idx] || "?";
-                  return (
-                    <Button
-                      key={tokenId}
-                      size="sm"
-                      variant={isSelected ? "default" : "outline"}
-                      onClick={() => handleSelectMarket(market, idx)}
-                      disabled={selectMutation.isPending}
-                      data-testid={`button-select-${market.id}-${idx}`}
-                    >
-                      {isSelected && <CheckCircle2 className="w-3 h-3 mr-1" />}
-                      {outcome} ({parseFloat(price) ? `$${parseFloat(price).toFixed(2)}` : price})
-                    </Button>
-                  );
-                })}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {market.outcomes?.map((outcome, idx) => {
+                    const price = market.outcomePrices?.[idx] || "?";
+                    return (
+                      <span key={idx} className="font-mono">
+                        {outcome}: {parseFloat(price) ? `$${parseFloat(price).toFixed(2)}` : price}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="ml-auto">
+                  {(() => {
+                    const isSelected = market.tokenIds?.some(t => t === currentMarketId);
+                    return (
+                      <Button
+                        size="sm"
+                        variant={isSelected ? "default" : "outline"}
+                        onClick={() => handleSelectMarket(market)}
+                        disabled={selectMutation.isPending}
+                        data-testid={`button-select-${market.id}`}
+                      >
+                        {isSelected ? (
+                          <>
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            Seleccionado
+                          </>
+                        ) : (
+                          "Seleccionar"
+                        )}
+                      </Button>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
             );

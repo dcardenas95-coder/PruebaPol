@@ -447,29 +447,31 @@ export async function registerRoutes(
 
   app.post("/api/markets/select", async (req, res) => {
     try {
-      const { tokenId, marketSlug, question, negRisk, tickSize } = req.body;
-      if (!tokenId) {
-        return res.status(400).json({ error: "tokenId is required" });
+      const { tokenId, tokenUp, tokenDown, marketSlug, question, negRisk, tickSize } = req.body;
+      const effectiveTokenUp = tokenUp || tokenId;
+      if (!effectiveTokenUp) {
+        return res.status(400).json({ error: "tokenUp (or tokenId) is required" });
       }
 
-      const orderbook = await polymarketClient.fetchOrderBook(tokenId);
+      const orderbook = await polymarketClient.fetchOrderBook(effectiveTokenUp);
       if (!orderbook) {
         return res.status(400).json({ error: "Could not fetch orderbook for this token. Invalid token ID." });
       }
 
       await storage.updateBotConfig({
-        currentMarketId: tokenId,
+        currentMarketId: effectiveTokenUp,
         currentMarketSlug: marketSlug || null,
         currentMarketNegRisk: negRisk ?? false,
         currentMarketTickSize: tickSize ? String(tickSize) : "0.01",
+        currentMarketTokenDown: tokenDown || null,
       });
 
-      strategyEngine.getMarketDataModule().setTokenId(tokenId);
+      strategyEngine.getMarketDataModule().setTokenId(effectiveTokenUp);
 
       await storage.createEvent({
         type: "INFO",
-        message: `Market selected: ${question || marketSlug || tokenId}`,
-        data: { tokenId, marketSlug, question },
+        message: `Market selected: ${question || marketSlug || effectiveTokenUp} (Up: ${effectiveTokenUp.slice(0, 8)}... Down: ${tokenDown ? tokenDown.slice(0, 8) + "..." : "none"})`,
+        data: { tokenUp: effectiveTokenUp, tokenDown, marketSlug, question },
         level: "info",
       });
 
