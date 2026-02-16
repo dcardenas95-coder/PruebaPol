@@ -428,6 +428,7 @@ export type MarketRegimeStatus = {
 export type BotStatus = {
   config: BotConfig;
   marketData: MarketData | null;
+  marketDataNo: MarketData | null;
   activeOrders: number;
   openPositions: number;
   dailyPnl: number;
@@ -440,11 +441,14 @@ export type BotStatus = {
   marketRemainingMs?: number;
   marketDurationMs?: number;
   isLiquidating?: boolean;
-  liquidationElapsedMs?: number;
-  liquidationPatienceMs?: number;
   cycleCount?: number;
   oracle?: OracleStatus;
   stopLoss?: StopLossStatus;
   progressiveSizer?: ProgressiveSizerStatus;
   marketRegime?: MarketRegimeStatus;
+  lastEntry?: {
+    tokenSide: "YES" | "NO";
+    price: number;
+    size: number;
+  } | null;
 };

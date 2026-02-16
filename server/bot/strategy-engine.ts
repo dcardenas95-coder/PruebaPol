@@ -30,6 +30,9 @@ export class StrategyEngine {
   private isLiquidating = false;
   private lastSeenBestBid = 0;
   private readonly PRICE_JUMP_THRESHOLD = 0.20;
+  private lastEntryTokenSide: "YES" | "NO" | null = null;
+  private lastEntryPrice: number | null = null;
+  private lastEntrySize: number | null = null;
 
   constructor() {
     this.marketData = new MarketDataModule();
@@ -263,6 +266,9 @@ export class StrategyEngine {
 
   private async forceStop(): Promise<void> {
     this.isLiquidating = false;
+    this.lastEntryTokenSide = null;
+    this.lastEntryPrice = null;
+    this.lastEntrySize = null;
 
     for (const t of this.hedgeLockRepriceTimers) clearTimeout(t);
     this.hedgeLockRepriceTimers = [];
@@ -440,6 +446,9 @@ export class StrategyEngine {
         if (this.waitForMarketInterval) return;
 
         this.cycleCount++;
+        this.lastEntryTokenSide = null;
+        this.lastEntryPrice = null;
+        this.lastEntrySize = null;
 
         await this.orderManager.cancelAllOrders();
 
@@ -737,6 +746,10 @@ export class StrategyEngine {
         oracleDirection: oracleSignal.direction,
         oracleConfidence: oracleSignal.confidence,
       });
+
+      this.lastEntryTokenSide = oracleResult.tokenSide as "YES" | "NO";
+      this.lastEntryPrice = entryPrice;
+      this.lastEntrySize = effectiveSize;
 
       const expectedWin = (1.0 - entryPrice) * effectiveSize;
       const expectedLoss = entryPrice * effectiveSize;
@@ -1157,6 +1170,16 @@ export class StrategyEngine {
         updatedAt: new Date(),
       },
       marketData,
+      marketDataNo: marketData ? {
+        bestBid: parseFloat((1 - marketData.bestAsk).toFixed(4)),
+        bestAsk: parseFloat((1 - marketData.bestBid).toFixed(4)),
+        spread: marketData.spread,
+        midpoint: parseFloat((1 - marketData.midpoint).toFixed(4)),
+        bidDepth: marketData.askDepth,
+        askDepth: marketData.bidDepth,
+        lastPrice: parseFloat((1 - marketData.lastPrice).toFixed(4)),
+        volume24h: marketData.volume24h,
+      } : null,
       activeOrders: activeOrders.length,
       openPositions: positions.length,
       dailyPnl: this.riskManager.getDailyPnl(),
@@ -1173,6 +1196,11 @@ export class StrategyEngine {
       stopLoss: stopLossManager.getStatus(),
       progressiveSizer: sizerStatus,
       marketRegime: marketRegimeFilter.getStatus(marketData),
+      lastEntry: this.lastEntryTokenSide ? {
+        tokenSide: this.lastEntryTokenSide,
+        price: this.lastEntryPrice!,
+        size: this.lastEntrySize!,
+      } : null,
     };
   }
 }

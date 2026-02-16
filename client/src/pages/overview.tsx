@@ -182,7 +182,19 @@ function MarketCountdown({ remainingMs, durationMs, currentState }: { remainingM
   );
 }
 
-function MarketDataPanel({ data, isLive, marketSlug, remainingMs, durationMs, currentState }: { data: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null; isLive?: boolean; marketSlug?: string | null; remainingMs?: number; durationMs?: number; currentState?: string }) {
+function MarketDataPanel({ data, dataNo, isLive, marketSlug, remainingMs, durationMs, currentState, oracleDirection, lastEntry }: {
+  data: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null;
+  dataNo: { bestBid: number; bestAsk: number; spread: number; midpoint: number; bidDepth: number; askDepth: number; lastPrice: number; volume24h: number } | null;
+  isLive?: boolean;
+  marketSlug?: string | null;
+  remainingMs?: number;
+  durationMs?: number;
+  currentState?: string;
+  oracleDirection?: string;
+  lastEntry?: { tokenSide: "YES" | "NO"; price: number; size: number } | null;
+}) {
+  const [viewSide, setViewSide] = useState<"YES" | "NO">("YES");
+
   if (!data) {
     return (
       <Card>
@@ -199,6 +211,18 @@ function MarketDataPanel({ data, isLive, marketSlug, remainingMs, durationMs, cu
     );
   }
 
+  const activeData = viewSide === "YES" ? data : (dataNo || data);
+  const entryData = lastEntry
+    ? lastEntry.tokenSide === "YES" ? data : (dataNo || data)
+    : null;
+  const currentValue = lastEntry && entryData ? entryData.bestBid : null;
+  const unrealizedPnl = lastEntry && currentValue !== null
+    ? (currentValue - lastEntry.price) * lastEntry.size
+    : null;
+  const unrealizedPct = lastEntry && currentValue !== null
+    ? ((currentValue - lastEntry.price) / lastEntry.price) * 100
+    : null;
+
   return (
     <Card data-testid="card-market-data">
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
@@ -210,61 +234,121 @@ function MarketDataPanel({ data, isLive, marketSlug, remainingMs, durationMs, cu
             </span>
           )}
         </div>
-        <Badge variant={isLive ? "default" : "secondary"} data-testid="badge-data-source">
-          {isLive ? "LIVE" : "Simulated"}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {oracleDirection && oracleDirection !== "NEUTRAL" && (
+            <Badge variant="outline" className={`text-[10px] font-mono ${oracleDirection === "UP" ? "text-emerald-500 border-emerald-500/50" : "text-red-500 border-red-500/50"}`} data-testid="badge-oracle-direction">
+              {oracleDirection === "UP" ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+              {oracleDirection === "UP" ? "BUY YES" : "BUY NO"}
+            </Badge>
+          )}
+          <Badge variant={isLive ? "default" : "secondary"} data-testid="badge-data-source">
+            {isLive ? "LIVE" : "Simulated"}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="p-4 pt-0 space-y-4">
         {remainingMs !== undefined && durationMs !== undefined && durationMs > 0 && (
           <MarketCountdown remainingMs={remainingMs} durationMs={durationMs} currentState={currentState} />
         )}
+
+        {lastEntry && (
+          <div className={`p-3 rounded-lg border ${lastEntry.tokenSide === "YES" ? "border-emerald-500/30 bg-emerald-500/5" : "border-red-500/30 bg-red-500/5"}`} data-testid="card-active-position">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <Badge className={`text-[10px] ${lastEntry.tokenSide === "YES" ? "bg-emerald-500" : "bg-red-500"}`} data-testid="badge-position-side">
+                  {lastEntry.tokenSide}
+                </Badge>
+                <span className="text-xs font-medium">Active Position</span>
+              </div>
+              {unrealizedPnl !== null && (
+                <span className={`text-xs font-mono font-medium ${unrealizedPnl >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid="text-unrealized-pnl">
+                  {unrealizedPnl >= 0 ? "+" : ""}{unrealizedPnl.toFixed(3)} ({unrealizedPct!.toFixed(1)}%)
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground">Entry</span>
+                <span className="text-xs font-mono font-medium" data-testid="text-entry-price">${lastEntry.price.toFixed(4)}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground">Size</span>
+                <span className="text-xs font-mono font-medium" data-testid="text-entry-size">{lastEntry.size.toFixed(1)}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground">Current ({lastEntry.tokenSide})</span>
+                <span className="text-xs font-mono font-medium" data-testid="text-current-value">
+                  {currentValue !== null ? `$${currentValue.toFixed(4)}` : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 p-0.5 bg-muted rounded-md w-fit">
+          <button
+            onClick={() => setViewSide("YES")}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewSide === "YES" ? "bg-emerald-500 text-white" : "text-muted-foreground hover:text-foreground"}`}
+            data-testid="button-view-yes"
+          >
+            YES
+          </button>
+          <button
+            onClick={() => setViewSide("NO")}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewSide === "NO" ? "bg-red-500 text-white" : "text-muted-foreground hover:text-foreground"}`}
+            data-testid="button-view-no"
+          >
+            NO
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Best Bid</span>
+            <span className="text-xs text-muted-foreground">{viewSide} Best Bid</span>
             <span className="text-sm font-mono font-medium text-emerald-500" data-testid="text-best-bid">
-              ${data.bestBid.toFixed(4)}
+              ${activeData.bestBid.toFixed(4)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Best Ask</span>
+            <span className="text-xs text-muted-foreground">{viewSide} Best Ask</span>
             <span className="text-sm font-mono font-medium text-red-500" data-testid="text-best-ask">
-              ${data.bestAsk.toFixed(4)}
+              ${activeData.bestAsk.toFixed(4)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground">Spread</span>
-            <span className={`text-sm font-mono font-medium ${data.spread >= 0.03 ? "text-emerald-500" : "text-muted-foreground"}`} data-testid="text-spread">
-              {(data.spread * 100).toFixed(2)}%
+            <span className={`text-sm font-mono font-medium ${activeData.spread >= 0.03 ? "text-emerald-500" : "text-muted-foreground"}`} data-testid="text-spread">
+              {(activeData.spread * 100).toFixed(2)}%
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Midpoint</span>
+            <span className="text-xs text-muted-foreground">{viewSide} Midpoint</span>
             <span className="text-sm font-mono font-medium" data-testid="text-midpoint">
-              ${data.midpoint.toFixed(4)}
+              ${activeData.midpoint.toFixed(4)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground">Bid Depth</span>
             <span className="text-sm font-mono" data-testid="text-bid-depth">
-              ${data.bidDepth.toFixed(2)}
+              ${activeData.bidDepth.toFixed(2)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground">Ask Depth</span>
             <span className="text-sm font-mono" data-testid="text-ask-depth">
-              ${data.askDepth.toFixed(2)}
+              ${activeData.askDepth.toFixed(2)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Last Price</span>
+            <span className="text-xs text-muted-foreground">{viewSide} Last Price</span>
             <span className="text-sm font-mono" data-testid="text-last-price">
-              ${data.lastPrice.toFixed(4)}
+              ${activeData.lastPrice.toFixed(4)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground">24h Volume</span>
             <span className="text-sm font-mono" data-testid="text-volume">
-              ${data.volume24h.toFixed(2)}
+              ${activeData.volume24h.toFixed(2)}
             </span>
           </div>
         </div>
@@ -370,16 +454,12 @@ export default function Overview() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant={config?.isActive || status?.isLiquidating ? "destructive" : "default"}
+            variant={config?.isActive ? "destructive" : "default"}
             onClick={() => toggleMutation.mutate()}
-            disabled={toggleMutation.isPending || config?.killSwitchActive || status?.isLiquidating}
+            disabled={toggleMutation.isPending || config?.killSwitchActive}
             data-testid="button-toggle-bot"
           >
-            {status?.isLiquidating ? (
-              <>
-                <Square className="w-4 h-4 mr-1.5 animate-pulse" /> Liquidando...
-              </>
-            ) : config?.isActive ? (
+            {config?.isActive ? (
               <>
                 <Square className="w-4 h-4 mr-1.5" /> Stop Bot
               </>
@@ -415,32 +495,6 @@ export default function Overview() {
         </Card>
       )}
 
-      {status?.isLiquidating && (
-        <Card className="border-orange-500/50 bg-orange-500/5" data-testid="card-liquidating-banner">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0 animate-pulse" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-orange-500">Liquidando posiciones abiertas...</p>
-                <p className="text-xs text-muted-foreground">
-                  {(status.liquidationElapsedMs ?? 0) < (status.liquidationPatienceMs ?? 60000)
-                    ? `Intentando salir al precio de entrada. Cruce forzado del spread en ${Math.max(0, Math.floor(((status.liquidationPatienceMs ?? 60000) - (status.liquidationElapsedMs ?? 0)) / 1000))}s`
-                    : "Cruzando spread para forzar cierre de posiciones..."}
-                </p>
-              </div>
-              <Badge variant="outline" className="text-orange-500 border-orange-500/50 font-mono">
-                {status.openPositions} pos. abiertas
-              </Badge>
-            </div>
-            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full bg-orange-500 transition-all duration-1000"
-                style={{ width: `${Math.min(100, ((status.liquidationElapsedMs ?? 0) / (status.liquidationPatienceMs ?? 60000)) * 100)}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
@@ -489,12 +543,10 @@ export default function Overview() {
             <CardTitle className="text-sm font-medium">Strategy State Machine</CardTitle>
             <div className="flex items-center gap-1.5">
               <Activity
-                className={`w-3.5 h-3.5 ${
-                  status?.isLiquidating ? "text-orange-500 animate-pulse" : config?.isActive ? "text-emerald-500" : "text-muted-foreground"
-                }`}
+                className={`w-3.5 h-3.5 ${config?.isActive ? "text-emerald-500" : "text-muted-foreground"}`}
               />
-              <Badge variant={status?.isLiquidating ? "destructive" : config?.isActive ? "default" : "secondary"}>
-                {status?.isLiquidating ? "LIQUIDATING" : config?.currentState || "STOPPED"}
+              <Badge variant={config?.isActive ? "default" : "secondary"}>
+                {config?.currentState || "STOPPED"}
               </Badge>
             </div>
           </CardHeader>
@@ -585,11 +637,14 @@ export default function Overview() {
 
         <MarketDataPanel
           data={status?.marketData ?? null}
+          dataNo={status?.marketDataNo ?? null}
           isLive={status?.isLiveData}
           marketSlug={status?.config?.currentMarketSlug}
           remainingMs={status?.marketRemainingMs}
           durationMs={status?.marketDurationMs}
           currentState={status?.config?.currentState ?? undefined}
+          oracleDirection={status?.oracle?.signal?.direction}
+          lastEntry={status?.lastEntry}
         />
       </div>
 
