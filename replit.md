@@ -101,10 +101,20 @@ pm2 restart polymaker
 - `server/bot/strategy-engine.ts` - FSM strategy engine with auto-rotation
 - `server/bot/order-manager.ts` - Order management, paper/live fills, position tracking
 
+## Core Strategy: Hold-to-Resolution
+- **NO TP orders**: Positions are held until market resolves at $1.00 or $0.00
+- **Dual-Layer Sizing**: L1-STRONG (5% capital, conf>=70%, strong signal), L2-MODERATE (3% capital, conf>=55%, weak signal), L3 skipped
+- **Entry Price Filter**: Only enters at $0.10-$0.52 (favorable R:R ratio)
+- **1 Entry Per Market**: No accumulation — single position per market cycle
+- **UNWIND/HEDGE_LOCK**: Only cancel pending orders, never sell positions
+- **Stop-Loss**: Alerts logged but no selling (positions resolve naturally)
+- **Settlement**: PnL calculated at market rotation via `settleMarketResolution()`
+
 ## Future Plans
-- **HEDGE_LOCK condicional**: Cuando el bot entra en HEDGE_LOCK (ultimos 45s) y tiene posiciones abiertas, evaluar el precio actual antes de liquidar. Si el valor actual es >$0.90 a favor de la posicion, dejar correr para capturar el payout completo ($1.00) en lugar de liquidar agresivamente. Solo cruzar el spread para forzar salida cuando la posicion esta en zona de riesgo ($0.30-$0.70). Evaluar despues de tener datos de win rate con la estrategia actual.
+- **Win Rate Analysis**: Collect data over 100+ trades to validate Oracle edge (need >47% WR at avg $0.48 entry)
 
 ## Recent Changes
+- 2026-02-16: **STRATEGY PIVOT: Hold-to-Resolution**: Replaced TP-scalping with hold-until-resolve. Disabled TP callback/orders, added $0.10-$0.52 price filter, dual-layer sizing (L1-STRONG 5%/L2-MODERATE 3%/L3 skip), 1 entry per market, UNWIND+HEDGE_LOCK only cancel orders (no selling), stop-loss logs only (no selling). FSM timing: UNWIND 60s, CLOSE_ONLY 30s, HEDGE_LOCK 15s. Oracle thresholds lowered (strong=20, weak=10, minConf=0.50). Math: at $0.50 entry need >50% WR, at $0.40 need >40%.
 - 2026-02-16: **Oracle Multi-Source Fallback**: Binance Oracle now tries multiple WebSocket sources (binance.com → binance.us → coincap.io), with REST polling fallback via Coinbase API when all WS endpoints are geo-blocked (error 451). Includes 8s connection timeout per endpoint, geo-block tracking, and `source` field in status.
 - 2026-02-16: **Health Monitor Fix**: WebSocket disconnection alert no longer fires when bot is STOPPED (false alarm). WS status only reports error/degraded when bot is actively running.
 - 2026-02-16: **WebSocket Asset Filter**: Fixed critical bug where bot bought both YES and NO tokens by subscribing to both asset IDs. Now only subscribes to tokenUp, filters all messages by activeAssetId, drops messages without asset_id. Added $0.20 price jump sanity check.
