@@ -1,0 +1,437 @@
+# FIX CRÍTICO: Estabilizar WebSocket de Polymarket — 62 reconexiones por mercado
+
+## EL PROBLEMA
+
+El WebSocket de Polymarket se desconecta cada 2-4 segundos (code 1005) y reconecta en loop infinito. En un mercado de 5 minutos se alcanzan 60+ reconexiones. El bot pasa más tiempo reconectándose que operando. Esto es el bloqueador #1 — sin WebSocket estable, ninguna estrategia funciona.
+
+Patrón observado en logs:
+```
+19:17:35 Connected (reconnects: 33)
+19:17:35 Subscribed to 1 assets
+19:17:35 Disconnected (code: 1005)        ← 0 segundos después
+19:17:35 Reconnecting in 4000ms
+19:17:39 Connected (reconnects: 34)
+19:17:39 Subscribed to 1 assets
+19:17:39 Disconnected (code: 1005)        ← 0 segundos otra vez
+```
+
+Además hay un log revelador:
+```
+[SAFETY] Price jump detected: $0.0200 → $0.5200 (Δ0.5000 > 0.2)
+```
+Esto confirma que el WS recibe datos de AMBOS tokens (YES y NO) mezclados.
+
+## CAUSAS RAÍZ IDENTIFICADAS
+
+### Causa 1: Se suscribe a 2 tokens pero solo necesita 1
+
+En `RECONNECT_WS()` (strategy-engine.ts línea 1225):
+```typescript
+const assetIds = [market.tokenUp, market.tokenDown]; // ← AMBOS tokens
+polymarketWs.connectMarket(assetIds);
+```
+
+El servidor de Polymarket puede estar cerrando la conexión porque suscribirse a ambos tokens de un mercado binario sin autenticación completa no está soportado, o genera conflictos en el stream de datos.
+
+### Causa 2: `_handleMarketMessage` no filtra por asset_id
+
+En `polymarket-ws.ts`, el handler `_handleMarketMessage` (línea 359) procesa TODOS los mensajes sin verificar de cuál token vienen. Si el WS manda datos de tokenUp Y tokenDown, `lastMarketData` oscila entre ambos precios.
+
+### Causa 3: El backoff no funciona porque `STABLE_CONNECTION_THRESHOLD` resetea el counter
+
+En el handler `close` (línea ~249):
+```typescript
+const wasStable = this.marketConnectedAt > 0 && 
+  (Date.now() - this.marketConnectedAt) > STABLE_CONNECTION_THRESHOLD;
+if (wasStable) {
+  this.marketReconnects = 0;           // Reset a 0
+  this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;  // Reset a 2s
+}
+```
+
+Pero `STABLE_CONNECTION_THRESHOLD = 30_000` (30 segundos). Cada vez que el WS sobrevive 30s, el counter se resetea a 0 y el delay vuelve a 2s. Esto crea un loop de reconexión rápida perpetua.
+
+### Causa 4: Ping interval demasiado largo
+
+`PING_INTERVAL = 30_000` (30 segundos). Los WebSockets de Polymarket pueden estar cortando conexiones inactivas antes de los 30 segundos. Si no hay mensajes del mercado en 15-20s, el servidor cierra.
+
+### Causa 5: Falta handler de `pong`
+
+El bot envía `{ type: "ping" }` pero Polymarket puede responder con un pong nativo del protocolo WebSocket o con un mensaje JSON. Si no se maneja, el servidor puede interpretar que el cliente está muerto.
+
+## SOLUCIÓN COMPLETA
+
+### CAMBIO 1: Suscribir SOLO al token activo (el que vamos a operar)
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `RECONNECT_WS()` (~línea 1221), cambiar:
+
+```typescript
+private RECONNECT_WS(config: BotConfig, market: { tokenUp: string; tokenDown: string }): void {
+  polymarketWs.disconnectAll();
+  this.wsSetup = false;
+
+  // ANTES: const assetIds = [market.tokenUp, market.tokenDown];
+  // AHORA: Solo suscribir al token activo (tokenUp es el que operamos)
+  const activeTokenId = config.currentMarketId || market.tokenUp;
+  const assetIds = [activeTokenId];
+  
+  polymarketWs.connectMarket(assetIds);
+  this.marketData.setWsDataSource(polymarketWs);
+
+  polymarketWs.onMarketData((data) => {
+    this.marketData.updateFromWs(data);
+  });
+
+  polymarketWs.onRefreshAssetIds(async () => {
+    const freshConfig = await storage.getBotConfig();
+    // Solo retornar el token activo, nunca ambos
+    if (freshConfig?.currentMarketId) {
+      return [freshConfig.currentMarketId];
+    }
+    return [activeTokenId];
+  });
+
+  if (!config.isPaperTrading && liveTradingClient.isInitialized()) {
+    const creds = liveTradingClient.getApiCreds();
+    if (creds) {
+      polymarketWs.connectUser([activeTokenId], creds);  // Solo el token activo
+      polymarketWs.onRefreshApiCreds(async () => {
+        return liveTradingClient.getApiCreds();
+      });
+      polymarketWs.onFill(async (fillData) => {
+        try {
+          await this.orderManager.handleWsFill(fillData);
+        } catch (err: any) {
+          console.error(`[StrategyEngine] WS fill handler error: ${err.message}`);
+        }
+      });
+    }
+  }
+
+  this.wsSetup = true;
+}
+```
+
+También cambiar `getMarketAssetIds()` (~línea 283):
+
+```typescript
+private getMarketAssetIds(config: BotConfig): string[] {
+  // Solo retornar el token activo — NUNCA ambos tokens
+  if (config.currentMarketId) {
+    return [config.currentMarketId];
+  }
+  return [];
+}
+```
+
+### CAMBIO 2: Filtrar mensajes por asset_id en _handleMarketMessage
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+Agregar propiedad para trackear el asset activo:
+
+```typescript
+// Agregar después de la línea: private lastMarketData: MarketData | null = null;
+private activeAssetId: string | null = null;
+
+// Agregar método público para settear el asset activo
+setActiveAssetId(assetId: string): void {
+  this.activeAssetId = assetId;
+  this.log("info", `Active asset ID set to: ${assetId.slice(0, 12)}...`);
+}
+```
+
+Modificar `_handleMarketMessage` (~línea 359) para filtrar:
+
+```typescript
+private _handleMarketMessage(data: any): void {
+  if (!data || typeof data !== "object") return;
+
+  // NUEVO: Filtrar por asset_id si está presente en el mensaje
+  const msgAssetId = data.asset_id || data.assetId || data.market || "";
+  if (this.activeAssetId && msgAssetId && msgAssetId !== this.activeAssetId) {
+    // Mensaje de otro token — ignorar silenciosamente
+    return;
+  }
+
+  const eventType = data.event_type;
+  // ... resto del handler sin cambios ...
+}
+```
+
+Y en `connectMarket()`, setear el activeAssetId:
+
+```typescript
+connectMarket(assetIds: string[]): void {
+  const validIds = this.filterValidAssets(assetIds);
+  if (validIds.length === 0) {
+    this.log("warn", `Market WS: Skipping connection — no valid asset IDs`);
+    return;
+  }
+  this.subscribedMarketAssets = validIds;
+  this.activeAssetId = validIds[0]; // El primer (y único) asset es el activo
+  this.shouldReconnectMarket = true;
+  this.invalidOpCountMarket = 0;
+  this.marketReconnects = 0;
+  this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
+  this._connectMarket();
+}
+```
+
+### CAMBIO 3: Ping más frecuente + pong handler
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+Cambiar constante de ping:
+
+```typescript
+// ANTES:
+const PING_INTERVAL = 30_000;
+
+// DESPUÉS:
+const PING_INTERVAL = 10_000; // Ping cada 10 segundos para mantener conexión viva
+```
+
+Agregar handler de pong nativo en `_connectMarket()`, dentro del bloque `this.marketWs.on("open", ...)`:
+
+```typescript
+this.marketWs.on("open", () => {
+  this.marketConnected = true;
+  this.marketConnectedAt = Date.now();
+  this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
+  this.log("info", `Market WS: Connected (reconnects: ${this.marketReconnects})`);
+
+  // Subscribir
+  if (this.subscribedMarketAssets.length > 0) {
+    const subscribeMsg = {
+      assets_ids: this.subscribedMarketAssets,
+      type: "market",
+    };
+    this.marketWs!.send(JSON.stringify(subscribeMsg));
+    this.log("info", `Market WS: Subscribed to ${this.subscribedMarketAssets.length} assets: ${this.subscribedMarketAssets.map(id => id.slice(0, 12) + '...').join(', ')}`);
+  }
+
+  // NUEVO: Ping tanto a nivel protocolo como a nivel aplicación
+  this.marketPingTimer = setInterval(() => {
+    if (this.marketWs?.readyState === WebSocket.OPEN) {
+      // Ping a nivel protocolo WebSocket (frame ping)
+      try {
+        this.marketWs.ping();
+      } catch {}
+      // Ping a nivel aplicación
+      try {
+        this.marketWs.send(JSON.stringify({ type: "ping" }));
+      } catch {}
+    }
+  }, PING_INTERVAL);
+});
+
+// NUEVO: Handler de pong nativo
+this.marketWs.on("pong", () => {
+  this.marketLastMessage = Date.now();
+});
+```
+
+### CAMBIO 4: Backoff exponencial REAL — no resetear counter tan rápido
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+Cambiar el `STABLE_CONNECTION_THRESHOLD`:
+
+```typescript
+// ANTES:
+const STABLE_CONNECTION_THRESHOLD = 30_000;
+
+// DESPUÉS:
+const STABLE_CONNECTION_THRESHOLD = 120_000; // 2 minutos = conexión realmente estable
+```
+
+Y cambiar el backoff máximo y base:
+
+```typescript
+// ANTES:
+const INITIAL_RECONNECT_DELAY = 2_000;
+const MAX_RECONNECT_DELAY = 60_000;
+const RECONNECT_BACKOFF_FACTOR = 2;
+
+// DESPUÉS:
+const INITIAL_RECONNECT_DELAY = 1_000;    // Empezar rápido
+const MAX_RECONNECT_DELAY = 30_000;       // Máximo 30s entre intentos
+const RECONNECT_BACKOFF_FACTOR = 1.5;     // Subir gradualmente (1s, 1.5s, 2.25s, 3.4s, 5s...)
+```
+
+### CAMBIO 5: Agregar REST API como fallback confiable
+
+**Archivo: `server/bot/market-data.ts`**
+
+El módulo `market-data.ts` ya tiene `startRestPolling()` pero no se activa automáticamente. Activarlo siempre como backup:
+
+En `strategy-engine.ts`, en `RECONNECT_WS()`, agregar al final:
+
+```typescript
+// Siempre iniciar REST polling como backup del WebSocket
+this.marketData.startRestPolling();
+```
+
+Y en `market-data.ts`, cambiar `WS_STALE_THRESHOLD`:
+
+```typescript
+// ANTES:
+private readonly WS_STALE_THRESHOLD = 15_000;
+
+// DESPUÉS:
+private readonly WS_STALE_THRESHOLD = 8_000;  // Si no hay WS data en 8s, usar REST
+```
+
+Cambiar `REST_POLL_INTERVAL`:
+
+```typescript
+// ANTES:
+private readonly REST_POLL_INTERVAL = 3_000;
+
+// DESPUÉS:
+private readonly REST_POLL_INTERVAL = 2_000; // Polling REST cada 2s cuando WS está caído
+```
+
+### CAMBIO 6: No crear eventos de log para cada reconexión (reduce I/O)
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+En el método `log()` (~línea 595), agregar throttling para mensajes repetitivos:
+
+```typescript
+private wsLogThrottle: Map<string, number> = new Map();
+
+private async log(level: string, message: string): Promise<void> {
+  const ts = new Date().toISOString();
+  const prefix = `[${ts}] [WS]`;
+  
+  // Console log siempre
+  if (level === "error") {
+    console.error(`${prefix} ${message}`);
+  } else if (level === "warn") {
+    console.warn(`${prefix} ${message}`);
+  } else {
+    console.log(`${prefix} ${message}`);
+  }
+
+  // Throttle storage events para mensajes de reconexión (máx 1 cada 30s por tipo)
+  const isReconnectMsg = message.includes("Reconnecting") || 
+                          message.includes("Disconnected") || 
+                          message.includes("Connected (reconnects");
+  if (isReconnectMsg) {
+    const throttleKey = message.split(":")[0]; // "Market WS" or "User WS"
+    const lastLog = this.wsLogThrottle.get(throttleKey) || 0;
+    if (Date.now() - lastLog < 30_000) {
+      return; // Skip storage event, ya se loggeó hace menos de 30s
+    }
+    this.wsLogThrottle.set(throttleKey, Date.now());
+  }
+
+  const eventType = level === "error" ? "ERROR" : "INFO";
+  try {
+    await storage.createEvent({
+      type: eventType,
+      message: `[WS] ${message}`,
+      data: {
+        timestamp: ts,
+        level,
+        marketConnected: this.marketConnected,
+        userConnected: this.userConnected,
+        marketReconnects: this.marketReconnects,
+        userReconnects: this.userReconnects,
+        subscribedMarketAssets: this.subscribedMarketAssets.length,
+        subscribedUserAssets: this.subscribedUserAssets.length,
+      },
+      level,
+    });
+  } catch {}
+}
+```
+
+### CAMBIO 7: Detectar y manejar el código 1005 específicamente
+
+Code 1005 significa "No Status Received" — el servidor cerró sin enviar close frame. Esto puede pasar por:
+- Timeout del servidor por inactividad
+- Problema de red intermitente
+- Servidor reiniciándose
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+En el handler `close` del market WS (~línea 249):
+
+```typescript
+this.marketWs.on("close", (code: number, reason: Buffer) => {
+  const connectionDuration = this.marketConnectedAt > 0 ? Date.now() - this.marketConnectedAt : 0;
+  const wasStable = connectionDuration > STABLE_CONNECTION_THRESHOLD;
+  this.marketConnected = false;
+  
+  if (wasStable) {
+    this.marketReconnects = 0;
+    this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
+    this.log("info", `Market WS: Disconnected after ${Math.floor(connectionDuration/1000)}s stable period (code: ${code}). Reset counter.`);
+  } else if (code === 1005 && connectionDuration < 5000) {
+    // NUEVO: Desconexión inmediata (< 5s) con code 1005
+    // Probable causa: el servidor no acepta la suscripción
+    // No incrementar backoff agresivamente, pero logear warning
+    this.log("warn", `Market WS: Quick disconnect (${connectionDuration}ms, code 1005). Possible subscription issue.`);
+    
+    // Si llevamos muchas desconexiones rápidas consecutivas, esperar más
+    if (this.marketReconnects > 10 && this.marketReconnects % 10 === 0) {
+      this.marketReconnectDelay = Math.min(this.marketReconnectDelay + 5000, MAX_RECONNECT_DELAY);
+      this.log("warn", `Market WS: ${this.marketReconnects} quick disconnects. Increasing delay to ${this.marketReconnectDelay}ms.`);
+    }
+  } else {
+    this.log("warn", `Market WS: Disconnected (code: ${code}, duration: ${connectionDuration}ms)`);
+  }
+  
+  this.marketConnectedAt = 0;
+  this._scheduleMarketReconnect();
+});
+```
+
+## RESUMEN DE CAMBIOS
+
+| Archivo | Cambio | Impacto |
+|---------|--------|---------|
+| `strategy-engine.ts` | Suscribir solo 1 token | Elimina datos mezclados YES/NO |
+| `polymarket-ws.ts` | Filtrar por asset_id | Previene price jumps |
+| `polymarket-ws.ts` | Ping cada 10s + pong handler | Mantiene conexión viva |
+| `polymarket-ws.ts` | Backoff real (no resetear en 30s) | Evita loop de reconexión |
+| `polymarket-ws.ts` | Throttle de logs | Reduce I/O y spam en eventos |
+| `polymarket-ws.ts` | Manejo específico code 1005 | Diagnóstico y backoff inteligente |
+| `market-data.ts` | REST polling activo + stale 8s | Datos siempre disponibles |
+
+## VERIFICACIÓN POST-IMPLEMENTACIÓN
+
+Corre el bot 15 minutos (3 mercados de 5m) y verifica:
+
+1. ✅ `Subscribed to 1 assets` (no 2)
+2. ✅ Menos de 5 reconexiones por mercado (antes: 60+)
+3. ✅ NO aparece `[SAFETY] Price jump detected`
+4. ✅ Los logs de `[FILTER]` muestran precios consistentes (no saltan de $0.02 a $0.52)
+5. ✅ Cuando WS cae, REST polling toma el relevo automáticamente
+6. ✅ Los logs de reconexión NO inundan la pantalla (throttled)
+
+## NOTA IMPORTANTE
+
+Si después de estos cambios el WS sigue cayendo con code 1005 cada pocos segundos, el problema puede ser del lado de Polymarket — su servidor puede estar rechazando conexiones desde IPs de Replit. En ese caso, el REST polling como fallback es la solución real: no depender del WS para nada y usar la REST API cada 2 segundos para obtener datos del orderbook.
+
+Para eso, en `getData()` de `market-data.ts`, se puede forzar REST siempre:
+
+```typescript
+async getData(): Promise<MarketData> {
+  // Siempre intentar REST primero si WS está inestable
+  if (this.currentTokenId && !this.useSimulation) {
+    const liveData = await this.fetchLiveData();
+    if (liveData) return liveData;
+  }
+  
+  // Fallback a WS data si REST falla
+  if (this.lastData) return this.lastData;
+  
+  return this.generateSimulatedData();
+}
+```
