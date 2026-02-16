@@ -1,0 +1,342 @@
+# PROMPT COMPLETO: Estabilizar WebSocket + Estrategia Camino A + Latency Widget
+
+Hay 3 bloques de cambios. Aplícalos todos en orden.
+
+---
+
+## BLOQUE 1: ESTABILIZAR WEBSOCKET (prioridad máxima)
+
+El WebSocket de Polymarket se desconecta cada 2-4 segundos (code 1005) y reconecta en loop. 62 reconexiones por mercado de 5 minutos. Causa raíz: se suscribe a 2 tokens (YES y NO) cuando solo necesita 1.
+
+### Cambio 1.1: Suscribir SOLO al token activo
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `RECONNECT_WS()` (~línea 1221), cambiar:
+
+```typescript
+// ANTES:
+const assetIds = [market.tokenUp, market.tokenDown];
+
+// DESPUÉS:
+const activeTokenId = config.currentMarketId || market.tokenUp;
+const assetIds = [activeTokenId]; // Solo 1 token
+```
+
+Aplicar lo mismo para `connectUser` dentro de esa función — solo pasar `[activeTokenId]`.
+
+En `getMarketAssetIds()` (~línea 283), cambiar para retornar solo `[config.currentMarketId]`, nunca ambos tokens.
+
+En `onRefreshAssetIds` callback, retornar siempre solo `[freshConfig.currentMarketId]` o `[activeTokenId]`.
+
+### Cambio 1.2: Filtrar mensajes por asset_id
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+Agregar propiedad `private activeAssetId: string | null = null;` y método público `setActiveAssetId(id: string)`.
+
+En `connectMarket()`, setear `this.activeAssetId = validIds[0];`
+
+En `_handleMarketMessage()`, al inicio agregar:
+```typescript
+const msgAssetId = data.asset_id || data.assetId || data.market || "";
+if (this.activeAssetId && msgAssetId && msgAssetId !== this.activeAssetId) {
+  return; // Ignorar datos de otro token
+}
+```
+
+### Cambio 1.3: Ping más frecuente
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+Cambiar `PING_INTERVAL` de `30_000` a `10_000`.
+
+En el handler `open` del market WS, agregar ping nativo del protocolo WebSocket además del JSON ping:
+```typescript
+try { this.marketWs.ping(); } catch {}
+this.marketWs.send(JSON.stringify({ type: "ping" }));
+```
+
+Agregar handler: `this.marketWs.on("pong", () => { this.marketLastMessage = Date.now(); });`
+
+### Cambio 1.4: Backoff real
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+```typescript
+const INITIAL_RECONNECT_DELAY = 1_000;
+const MAX_RECONNECT_DELAY = 30_000;
+const RECONNECT_BACKOFF_FACTOR = 1.5;
+const STABLE_CONNECTION_THRESHOLD = 120_000; // 2 minutos
+```
+
+En el handler `close`, si `code === 1005` y la conexión duró <5 segundos y llevamos >10 reconexiones, incrementar delay +5s cada 10 intentos.
+
+### Cambio 1.5: REST polling como backup automático
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `RECONNECT_WS()`, al final agregar: `this.marketData.startRestPolling();`
+
+**Archivo: `server/bot/market-data.ts`**
+
+Cambiar `WS_STALE_THRESHOLD` de `15_000` a `8_000` y `REST_POLL_INTERVAL` de `3_000` a `2_000`.
+
+### Cambio 1.6: Throttle de logs de reconexión
+
+**Archivo: `server/bot/polymarket-ws.ts`**
+
+En el método `log()`, agregar throttling: si el mensaje contiene "Reconnecting", "Disconnected" o "Connected (reconnects", solo escribir al storage 1 vez cada 30 segundos. Console.log siempre.
+
+---
+
+## BLOQUE 2: ESTRATEGIA CAMINO A — Oracle permisivo + Hold to Resolution
+
+La estrategia actual no opera nunca porque el Oracle requiere confidence ≥ 0.60 que nunca se alcanza en los primeros 2 minutos, y cuando se alcanza el precio ya supera $0.52. Estos cambios bajan los umbrales para capturar señales tempranas.
+
+### Cambio 2.1: Bajar umbrales del Oracle
+
+**Archivo: `server/bot/binance-oracle.ts`**
+
+```typescript
+const DEFAULT_CONFIG: OracleConfig = {
+  strongThreshold: 20,    // Antes: 30. BTC $20 = señal fuerte
+  weakThreshold: 8,       // Antes: 15. BTC $8 = señal weak (captura temprana)
+  minConfidence: 0.35,    // Antes: 0.60. Permite operar con señales tempranas
+  enabled: true,
+};
+```
+
+### Cambio 2.2: Subir precio máximo de entrada a $0.58
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `executeStrategy()`, el filtro de precio máximo:
+
+```typescript
+const MAX_ENTRY_PRICE = 0.58;  // Antes: 0.52. Da más margen para entrar
+const MIN_ENTRY_PRICE = 0.10;
+
+if (entryPrice > MAX_ENTRY_PRICE) {
+  await storage.createEvent({
+    type: "INFO",
+    message: `[STRATEGY] Entry price $${entryPrice.toFixed(3)} > max $${MAX_ENTRY_PRICE} — skipping`,
+    data: { filter: "maxPrice", entryPrice, maxAllowed: MAX_ENTRY_PRICE },
+    level: "info",
+  });
+  return;
+}
+if (entryPrice < MIN_ENTRY_PRICE) {
+  await storage.createEvent({
+    type: "INFO",
+    message: `[STRATEGY] Entry price $${entryPrice.toFixed(3)} < min $${MIN_ENTRY_PRICE} — skipping`,
+    data: { filter: "minPrice", entryPrice, minAllowed: MIN_ENTRY_PRICE },
+    level: "info",
+  });
+  return;
+}
+```
+
+### Cambio 2.3: Sizing Dual-Layer por confianza del Oracle
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `executeStrategy()`, reemplazar el cálculo de `effectiveSize`:
+
+```typescript
+const oracleConfidence = oracleSignal.confidence;
+let effectiveSize: number;
+let layer: string;
+
+if (oracleSignal.strength === "STRONG" && oracleConfidence >= 0.55) {
+  // Layer 1: Strong — 5% del capital
+  const maxRisk = config.maxNetExposure * 0.05;
+  effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize).toFixed(2));
+  layer = "L1-STRONG";
+} else if (oracleSignal.strength !== "NONE" && oracleConfidence >= 0.35) {
+  // Layer 2: Weak/Early — 3% del capital
+  const maxRisk = config.maxNetExposure * 0.03;
+  effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize * 0.6).toFixed(2));
+  layer = "L2-EARLY";
+} else {
+  await storage.createEvent({
+    type: "INFO",
+    message: `[STRATEGY] No signal: conf=${(oracleConfidence * 100).toFixed(0)}% strength=${oracleSignal.strength} — no trade`,
+    data: { filter: "noSignal", confidence: oracleConfidence, strength: oracleSignal.strength },
+    level: "info",
+  });
+  return;
+}
+
+if (effectiveSize < 1) effectiveSize = 1;
+```
+
+### Cambio 2.4: Hold to Resolution — eliminar Take Profit
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Comentar la llamada a `ensureTakeProfitOrders` en `executeStrategy()`:
+```typescript
+// HOLD TO RESOLUTION — no TP orders
+// await this.ensureTakeProfitOrders(config, data, tpOrders, tokenId, marketId, negRisk, tickSize);
+```
+
+Comentar el contenido de `setupTakeProfitCallback`:
+```typescript
+private setupTakeProfitCallback(config: BotConfig): void {
+  return; // HOLD TO RESOLUTION
+}
+```
+
+### Cambio 2.5: UNWIND ya no vende — solo cancela BUYs pendientes
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Reemplazar `executeUnwind()`:
+```typescript
+private async executeUnwind(config: BotConfig, data: MarketData): Promise<void> {
+  // Solo cancelar órdenes de compra pendientes, NO vender posiciones
+  const activeOrders = await this.orderManager.getActiveOrders();
+  const buyOrders = activeOrders.filter(o => o.side === "BUY");
+  if (buyOrders.length > 0) {
+    for (const order of buyOrders) {
+      await this.orderManager.cancelOrder(order.id);
+    }
+    await storage.createEvent({
+      type: "INFO",
+      message: `[UNWIND] Cancelled ${buyOrders.length} pending BUYs — holding positions to resolution`,
+      data: { cancelledBuys: buyOrders.length },
+      level: "info",
+    });
+  }
+}
+```
+
+### Cambio 2.6: HEDGE_LOCK ya no vende — solo limpieza
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Reemplazar `executeHedgeLock()`:
+```typescript
+private async executeHedgeLock(config: BotConfig, data: MarketData): Promise<void> {
+  // Solo cancelar órdenes pendientes, posiciones resuelven automáticamente
+  const activeOrders = await this.orderManager.getActiveOrders();
+  if (activeOrders.length > 0) {
+    await this.orderManager.cancelAllOrders();
+    await storage.createEvent({
+      type: "INFO",
+      message: `[HEDGE_LOCK] Cancelled ${activeOrders.length} orders — holding to resolution`,
+      data: { cancelled: activeOrders.length },
+      level: "info",
+    });
+  }
+}
+```
+
+### Cambio 2.7: Solo 1 entrada por mercado
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `executeStrategy()`, cambiar el límite de entry orders:
+```typescript
+// ANTES:
+if (entryOrders.length >= 3) return;
+
+// DESPUÉS:
+if (entryOrders.length >= 1) return;
+
+// También verificar si ya hay posición abierta
+const positions = await storage.getPositions();
+if (positions.some(p => p.size > 0)) return;
+```
+
+### Cambio 2.8: Registrar PnL al rotar mercado
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `switchToMarket()`, ANTES de limpiar posiciones y cancelar órdenes, agregar:
+```typescript
+const positions = await storage.getPositions();
+const openPositions = positions.filter(p => p.size > 0);
+if (openPositions.length > 0) {
+  const finalData = await this.marketData.getData();
+  for (const pos of openPositions) {
+    const resolved = finalData.bestBid >= 0.50 ? 1.0 : 0.0;
+    const pnl = (resolved - pos.avgEntryPrice) * pos.size;
+    await storage.createEvent({
+      type: "PNL_UPDATE",
+      message: `[RESOLUTION] ${pos.size.toFixed(1)} shares @ $${pos.avgEntryPrice.toFixed(3)} → $${resolved.toFixed(2)} | PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(4)} ${pnl >= 0 ? '✅' : '❌'}`,
+      data: { size: pos.size, avgEntry: pos.avgEntryPrice, resolved, pnl },
+      level: pnl >= 0 ? "info" : "warn",
+    });
+    await this.updateDailyPnl(pnl, pnl > 0);
+    await storage.deletePosition(pos.id);
+  }
+}
+```
+
+### Cambio 2.9: Ajustar FSM timing
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+```typescript
+private calculateState(current: BotState, remainingMs: number): BotState {
+  if (current === "STOPPED") return current;
+  if (current === "DONE") return current;
+  if (remainingMs <= 0) return "DONE";
+  if (remainingMs <= 15000) return "HEDGE_LOCK";   // Antes: 45s
+  if (remainingMs <= 30000) return "CLOSE_ONLY";   // Antes: 60s
+  if (remainingMs <= 60000) return "UNWIND";        // Antes: 120s
+  return "MAKING";
+}
+```
+
+### Cambio 2.10: Spread mínimo a 0.5%
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Cambiar el default de `minSpread` a `0.005` (0.5%) en los config defaults al final del archivo. El spread no es relevante para hold-to-resolution pero no queremos que bloquee trades.
+
+### Cambio 2.11: Log del layer y resultado esperado
+
+En `executeStrategy()`, después de `placeOrder`, logear:
+```typescript
+await storage.createEvent({
+  type: "INFO",
+  message: `[${layer}] ENTRY: ${oracleResult.tokenSide} @ $${entryPrice.toFixed(3)} × ${effectiveSize} | Oracle: ${oracleSignal.direction}/${oracleSignal.strength} conf=${(oracleSignal.confidence * 100).toFixed(0)}% Δ$${oracleSignal.delta.toFixed(2)} | HOLD TO RESOLUTION | Win=$${((1.0 - entryPrice) * effectiveSize).toFixed(2)} Loss=-$${(entryPrice * effectiveSize).toFixed(2)}`,
+  data: { layer, entryPrice, effectiveSize, oracle: oracleSignal, holdStrategy: "RESOLUTION" },
+  level: "info",
+});
+```
+
+---
+
+## BLOQUE 3: WIDGET DE LATENCIA EN TIEMPO REAL
+
+### Cambio 3.1: Medir latencia al iniciar el bot
+
+Al iniciar el bot, mide y logea la latencia al WebSocket de Polymarket y a la API REST de Binance. Ejecuta 3 pings a cada uno y logea el promedio. Usa `Date.now()` antes y después de la conexión/respuesta. Logea el resultado como evento tipo "INFO" con mensaje `[LATENCY] Polymarket WS: Xms | Binance WS: Xms`.
+
+### Cambio 3.2: Widget de latencia live en dashboard
+
+Agrega un widget de latencia en tiempo real al dashboard principal. Cada 15 segundos mide la latencia a Polymarket REST API y a Binance WS. Muestra en la UI un indicador con: "PM: XXms | BN: XXms" con color verde si <100ms, amarillo si <300ms, rojo si >300ms. Guarda el histórico de las últimas 20 mediciones para mostrar un mini sparkline o tendencia. Colócalo en la barra superior del dashboard junto al estado del bot.
+
+---
+
+## ORDEN DE IMPLEMENTACIÓN
+
+1. Primero: Bloque 1 (WebSocket) — sin esto nada funciona
+2. Segundo: Bloque 2 (Estrategia) — depende de datos estables
+3. Tercero: Bloque 3 (Latencia) — monitoreo visual
+
+## VERIFICACIÓN
+
+Correr paper trading 15 minutos y verificar:
+- ✅ WebSocket: <5 reconexiones por mercado (antes: 60+)
+- ✅ Suscrito a 1 solo asset (no 2)
+- ✅ Oracle genera señales WEAK/STRONG con delta >$8
+- ✅ Entradas entre $0.10 y $0.58 únicamente
+- ✅ Solo 1 entrada por mercado
+- ✅ Sin órdenes SELL (hold to resolution)
+- ✅ Al rotar mercado, log `[RESOLUTION]` con PnL real
+- ✅ Widget de latencia visible en dashboard
