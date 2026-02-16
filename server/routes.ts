@@ -1095,6 +1095,34 @@ export async function registerRoutes(
     }
   });
 
+  const latencyHistory: Array<{ pm: number; bn: number; ts: number }> = [];
+  const MAX_LATENCY_HISTORY = 20;
+
+  app.get("/api/latency", async (_req, res) => {
+    try {
+      const pmStart = Date.now();
+      let pmLatency = -1;
+      try {
+        const pmResp = await fetch("https://clob.polymarket.com/time", {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (pmResp.ok) pmLatency = Date.now() - pmStart;
+      } catch {}
+
+      const bnLatency = binanceOracle.getWsLatencyMs();
+
+      const entry = { pm: pmLatency, bn: bnLatency, ts: Date.now() };
+      latencyHistory.push(entry);
+      if (latencyHistory.length > MAX_LATENCY_HISTORY) {
+        latencyHistory.shift();
+      }
+
+      res.json({ current: entry, history: latencyHistory });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   startHealthMonitor(30_000);
 
   return httpServer;

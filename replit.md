@@ -114,6 +114,7 @@ pm2 restart polymaker
 - **Win Rate Analysis**: Collect data over 100+ trades to validate Oracle edge (need >47% WR at avg $0.48 entry)
 
 ## Recent Changes
+- 2026-02-16: **Latency Widget**: Real-time latency monitor in global header bar. Measures Polymarket REST API round-trip and Binance WS ping/pong RTT every 15s. Shows "PM: XXms | BN: XXms" with color indicators (green <100ms, yellow <300ms, red >300ms), SVG sparklines for last 20 samples, and tooltip with details. Endpoint: `/api/latency`.
 - 2026-02-16: **STRATEGY PIVOT: Hold-to-Resolution**: Replaced TP-scalping with hold-until-resolve. Disabled TP callback/orders, added $0.10-$0.52 price filter, dual-layer sizing (L1-STRONG 5%/L2-MODERATE 3%/L3 skip), 1 entry per market, UNWIND+HEDGE_LOCK only cancel orders (no selling), stop-loss logs only (no selling). FSM timing: UNWIND 60s, CLOSE_ONLY 30s, HEDGE_LOCK 15s. Oracle thresholds lowered (strong=20, weak=10, minConf=0.50). Math: at $0.50 entry need >50% WR, at $0.40 need >40%.
 - 2026-02-16: **Oracle Multi-Source Fallback**: Binance Oracle now tries multiple WebSocket sources (binance.com → binance.us → coincap.io), with REST polling fallback via Coinbase API when all WS endpoints are geo-blocked (error 451). Includes 8s connection timeout per endpoint, geo-block tracking, and `source` field in status.
 - 2026-02-16: **Health Monitor Fix**: WebSocket disconnection alert no longer fires when bot is STOPPED (false alarm). WS status only reports error/degraded when bot is actively running.

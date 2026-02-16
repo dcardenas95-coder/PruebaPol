@@ -59,6 +59,9 @@ export class BinanceOracle {
   private activeSource: string = "none";
   private wsConnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private manuallyDisconnected = false;
+  private wsLatencyMs = -1;
+  private wsPingSentAt = 0;
+  private wsPingTimer: ReturnType<typeof setInterval> | null = null;
 
   getConfig(): OracleConfig {
     return { ...this.config };
@@ -130,6 +133,21 @@ export class BinanceOracle {
         this.reconnectAttempts = 0;
         this.activeSource = sourceName;
         console.log(`[BinanceOracle] Connected via ${sourceName}`);
+
+        if (this.wsPingTimer) clearInterval(this.wsPingTimer);
+        this.wsPingTimer = setInterval(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.wsPingSentAt = Date.now();
+            try { this.ws.ping(); } catch {}
+          }
+        }, 15_000);
+      });
+
+      this.ws.on("pong", () => {
+        if (this.wsPingSentAt > 0) {
+          this.wsLatencyMs = Date.now() - this.wsPingSentAt;
+          this.wsPingSentAt = 0;
+        }
       });
 
       this.ws.on("message", (raw: Buffer) => {
@@ -160,6 +178,12 @@ export class BinanceOracle {
           clearTimeout(this.wsConnectTimeout);
           this.wsConnectTimeout = null;
         }
+        if (this.wsPingTimer) {
+          clearInterval(this.wsPingTimer);
+          this.wsPingTimer = null;
+        }
+        this.wsPingSentAt = 0;
+        this.wsLatencyMs = -1;
         this.connected = false;
         this.activeSource = "none";
         if (!this.manuallyDisconnected) {
@@ -267,6 +291,10 @@ export class BinanceOracle {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    if (this.wsPingTimer) {
+      clearInterval(this.wsPingTimer);
+      this.wsPingTimer = null;
+    }
     this.stopRestPolling();
     if (this.ws) {
       this.ws.removeAllListeners();
@@ -275,6 +303,7 @@ export class BinanceOracle {
     }
     this.connected = false;
     this.activeSource = "none";
+    this.wsLatencyMs = -1;
   }
 
   markWindowStart(): void {
@@ -413,6 +442,10 @@ export class BinanceOracle {
     return this.connected;
   }
 
+  getWsLatencyMs(): number {
+    return this.wsLatencyMs;
+  }
+
   getStatus(): {
     connected: boolean;
     btcPrice: number;
@@ -422,6 +455,7 @@ export class BinanceOracle {
     volatility5m: number;
     signal: PriceSignal;
     source: string;
+    wsLatencyMs: number;
   } {
     const signal = this.getSignal();
     return {
@@ -433,6 +467,7 @@ export class BinanceOracle {
       volatility5m: this.getVolatility(5),
       signal,
       source: this.activeSource,
+      wsLatencyMs: this.wsLatencyMs,
     };
   }
 }
