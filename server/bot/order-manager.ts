@@ -56,6 +56,7 @@ export class OrderManager {
             orderId: dbOrder.id,
             marketId: dbOrder.marketId,
             tokenId: dbOrder.tokenId || dbOrder.marketId,
+            tokenSide: dbOrder.tokenSide || null,
             side: dbOrder.side,
             price: fillPrice,
             size: newFillSize,
@@ -64,7 +65,7 @@ export class OrderManager {
           });
 
           await storage.updateOrderStatus(dbOrder.id, "PARTIALLY_FILLED", sizeMatched);
-          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee, dbOrder.tokenId || dbOrder.marketId);
+          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee, dbOrder.tokenId || dbOrder.marketId, dbOrder.tokenSide);
           filled++;
         }
         reconciled++;
@@ -82,13 +83,14 @@ export class OrderManager {
             orderId: dbOrder.id,
             marketId: dbOrder.marketId,
             tokenId: dbOrder.tokenId || dbOrder.marketId,
+            tokenSide: dbOrder.tokenSide || null,
             side: dbOrder.side,
             price: fillPrice,
             size: newFillSize,
             fee,
             isPaperTrade: false,
           });
-          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee, dbOrder.tokenId || dbOrder.marketId);
+          await this.updatePosition(dbOrder.marketId, dbOrder.side, newFillSize, fillPrice, fee, dbOrder.tokenId || dbOrder.marketId, dbOrder.tokenSide);
           filled++;
         }
 
@@ -148,6 +150,7 @@ export class OrderManager {
   async placeOrder(params: {
     marketId: string;
     tokenId?: string;
+    tokenSide?: "YES" | "NO";
     side: "BUY" | "SELL";
     price: number;
     size: number;
@@ -173,6 +176,7 @@ export class OrderManager {
       clientOrderId,
       marketId: params.marketId,
       tokenId: params.tokenId || params.marketId,
+      tokenSide: params.tokenSide || null,
       side: params.side,
       price: params.price,
       size: params.size,
@@ -186,7 +190,7 @@ export class OrderManager {
 
     await storage.createEvent({
       type: "ORDER_PLACED",
-      message: `[PAPER] ${params.side} order placed: ${params.size} @ $${params.price.toFixed(4)}`,
+      message: `[PAPER] ${params.side} ${params.tokenSide || "?"} order placed: ${params.size} @ $${params.price.toFixed(4)}`,
       data: { orderId: order.id, clientOrderId, side: params.side, price: params.price, size: params.size },
       level: "info",
     });
@@ -198,6 +202,7 @@ export class OrderManager {
   private async placeLiveOrder(params: {
     marketId: string;
     tokenId?: string;
+    tokenSide?: "YES" | "NO";
     side: "BUY" | "SELL";
     price: number;
     size: number;
@@ -227,6 +232,7 @@ export class OrderManager {
       clientOrderId,
       marketId: params.marketId,
       tokenId: effectiveTokenId,
+      tokenSide: params.tokenSide || null,
       side: params.side,
       price: params.price,
       size: params.size,
@@ -380,6 +386,7 @@ export class OrderManager {
             orderId: order.id,
             marketId: order.marketId,
             tokenId: order.tokenId || order.marketId,
+            tokenSide: order.tokenSide || null,
             side: order.side,
             price: fillPrice,
             size: newFillSize,
@@ -396,7 +403,7 @@ export class OrderManager {
             level: "info",
           });
 
-          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee, order.tokenId || order.marketId);
+          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee, order.tokenId || order.marketId, order.tokenSide);
           results.push({ filled: true, pnl, fee });
         }
       } else {
@@ -413,6 +420,7 @@ export class OrderManager {
             orderId: order.id,
             marketId: order.marketId,
             tokenId: order.tokenId || order.marketId,
+            tokenSide: order.tokenSide || null,
             side: order.side,
             price: fillPrice,
             size: newFillSize,
@@ -420,7 +428,7 @@ export class OrderManager {
             isPaperTrade: false,
           });
 
-          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee, order.tokenId || order.marketId);
+          const pnl = await this.updatePosition(order.marketId, order.side, newFillSize, fillPrice, fee, order.tokenId || order.marketId, order.tokenSide);
           results.push({ filled: true, pnl, fee });
         }
 
@@ -473,6 +481,7 @@ export class OrderManager {
       orderId: matchingOrder.id,
       marketId: matchingOrder.marketId,
       tokenId: matchingOrder.tokenId || matchingOrder.marketId,
+      tokenSide: matchingOrder.tokenSide || null,
       side: matchingOrder.side,
       price: fillPrice,
       size: newFillSize,
@@ -502,7 +511,7 @@ export class OrderManager {
       level: "info",
     });
 
-    const pnl = await this.updatePosition(matchingOrder.marketId, matchingOrder.side, newFillSize, fillPrice, fee, matchingOrder.tokenId || matchingOrder.marketId);
+    const pnl = await this.updatePosition(matchingOrder.marketId, matchingOrder.side, newFillSize, fillPrice, fee, matchingOrder.tokenId || matchingOrder.marketId, matchingOrder.tokenSide);
     if (pnl !== 0) {
       console.log(`[OrderManager/WS] Fill processed: ${matchingOrder.side} ${newFillSize} @ ${fillPrice}, PnL: ${pnl}`);
     }
@@ -582,6 +591,7 @@ export class OrderManager {
       orderId: order.id,
       marketId: order.marketId,
       tokenId: order.tokenId || order.marketId,
+      tokenSide: order.tokenSide || null,
       side: order.side,
       price: fillPrice,
       size: fillSize,
@@ -593,16 +603,16 @@ export class OrderManager {
 
     await storage.createEvent({
       type: "ORDER_FILLED",
-      message: `[PAPER] Order filled: ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${order.side}) [fee: $${fee.toFixed(4)}] [token: ${order.tokenId === order.marketId ? 'UP' : 'DOWN'}]`,
+      message: `[PAPER] Order filled: ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} (${order.side}) [fee: $${fee.toFixed(4)}] [token: ${order.tokenSide || '?'}]`,
       data: { orderId, fillPrice, fillSize, side: order.side, fee, tokenId: order.tokenId },
       level: "info",
     });
 
-    const pnl = await this.updatePosition(order.marketId, order.side, fillSize, fillPrice, fee, order.tokenId || order.marketId);
+    const pnl = await this.updatePosition(order.marketId, order.side, fillSize, fillPrice, fee, order.tokenId || order.marketId, order.tokenSide);
     return { filled: true, pnl, fee };
   }
 
-  private async updatePosition(marketId: string, side: string, fillSize: number, fillPrice: number, fee: number, tokenId?: string): Promise<number> {
+  private async updatePosition(marketId: string, side: string, fillSize: number, fillPrice: number, fee: number, tokenId?: string, tokenSide?: string | null): Promise<number> {
     const posTokenId = tokenId || marketId;
 
     if (side === "BUY") {
@@ -616,6 +626,7 @@ export class OrderManager {
         await storage.upsertPosition({
           marketId,
           tokenId: posTokenId,
+          tokenSide: tokenSide || existing.tokenSide || null,
           side: "BUY",
           size: parseFloat(newSize.toFixed(4)),
           avgEntryPrice: parseFloat(newAvg.toFixed(4)),
@@ -626,6 +637,7 @@ export class OrderManager {
         await storage.upsertPosition({
           marketId,
           tokenId: posTokenId,
+          tokenSide: tokenSide || null,
           side: "BUY",
           size: fillSize,
           avgEntryPrice: fillPrice,
@@ -634,11 +646,10 @@ export class OrderManager {
         });
       }
 
-      const isTokenDown = tokenId && tokenId !== marketId;
       await storage.createEvent({
         type: "POSITION_UPDATE",
-        message: `Position opened/increased: BUY ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
-        data: { marketId, tokenId: posTokenId, side: "BUY", fillSize, fillPrice, isTokenDown },
+        message: `Position opened/increased: BUY ${fillSize.toFixed(2)} @ $${fillPrice.toFixed(4)} [${tokenSide || "?"}]`,
+        data: { marketId, tokenId: posTokenId, tokenSide, side: "BUY", fillSize, fillPrice },
         level: "info",
       });
 
@@ -660,6 +671,7 @@ export class OrderManager {
           await storage.upsertPosition({
             marketId,
             tokenId: posTokenId,
+            tokenSide: tokenSide || buyPos.tokenSide || null,
             side: "BUY",
             size: remainingSize,
             avgEntryPrice: buyPos.avgEntryPrice,
@@ -668,18 +680,17 @@ export class OrderManager {
           });
         }
 
-        const isTokenDown = tokenId && tokenId !== marketId;
         await storage.createEvent({
           type: "PNL_UPDATE",
-          message: `Trade closed: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)} realized PnL [${isTokenDown ? "tokenDown" : "tokenUp"}]`,
+          message: `Trade closed: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)} realized PnL [${tokenSide || buyPos.tokenSide || "?"}]`,
           data: {
             marketId,
             tokenId: posTokenId,
+            tokenSide: tokenSide || buyPos.tokenSide,
             entryPrice: buyPos.avgEntryPrice,
             exitPrice: fillPrice,
             size: closeSize,
             realizedPnl,
-            isTokenDown,
           },
           level: realizedPnl >= 0 ? "info" : "warn",
         });

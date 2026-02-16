@@ -1,0 +1,185 @@
+CREATE TYPE "public"."bot_state" AS ENUM('MAKING', 'UNWIND', 'CLOSE_ONLY', 'HEDGE_LOCK', 'DONE', 'STOPPED', 'RUNNING');--> statement-breakpoint
+CREATE TYPE "public"."dual_entry_cycle_state" AS ENUM('IDLE', 'ARMED', 'ENTRY_WORKING', 'PARTIAL_FILL', 'HEDGED', 'EXIT_WORKING', 'DONE', 'CLEANUP', 'FAILSAFE');--> statement-breakpoint
+CREATE TYPE "public"."event_type" AS ENUM('ORDER_PLACED', 'ORDER_FILLED', 'ORDER_CANCELLED', 'ORDER_REJECTED', 'STATE_CHANGE', 'RISK_ALERT', 'KILL_SWITCH', 'ERROR', 'INFO', 'RECONCILIATION', 'POSITION_UPDATE', 'PNL_UPDATE');--> statement-breakpoint
+CREATE TYPE "public"."order_side" AS ENUM('BUY', 'SELL');--> statement-breakpoint
+CREATE TYPE "public"."order_status" AS ENUM('PENDING', 'OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED', 'REJECTED');--> statement-breakpoint
+CREATE TABLE "bot_config" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"is_paper_trading" boolean DEFAULT true NOT NULL,
+	"current_state" "bot_state" DEFAULT 'STOPPED' NOT NULL,
+	"min_spread" real DEFAULT 0.03 NOT NULL,
+	"target_profit_min" real DEFAULT 0.03 NOT NULL,
+	"target_profit_max" real DEFAULT 0.05 NOT NULL,
+	"max_net_exposure" real DEFAULT 100 NOT NULL,
+	"max_daily_loss" real DEFAULT 50 NOT NULL,
+	"max_consecutive_losses" integer DEFAULT 3 NOT NULL,
+	"order_size" real DEFAULT 10 NOT NULL,
+	"kill_switch_active" boolean DEFAULT false NOT NULL,
+	"current_market_id" text,
+	"current_market_slug" text,
+	"current_market_neg_risk" boolean DEFAULT false NOT NULL,
+	"current_market_tick_size" text DEFAULT '0.01' NOT NULL,
+	"current_market_token_down" text,
+	"auto_rotate" boolean DEFAULT false NOT NULL,
+	"auto_rotate_asset" text DEFAULT 'btc' NOT NULL,
+	"auto_rotate_interval" text DEFAULT '5m' NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "bot_events" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"type" "event_type" NOT NULL,
+	"message" text NOT NULL,
+	"data" jsonb,
+	"level" text DEFAULT 'info' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "dual_entry_config" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"is_dry_run" boolean DEFAULT true NOT NULL,
+	"market_token_yes" text,
+	"market_token_no" text,
+	"market_slug" text,
+	"market_question" text,
+	"neg_risk" boolean DEFAULT false NOT NULL,
+	"tick_size" text DEFAULT '0.01' NOT NULL,
+	"entry_price" real DEFAULT 0.45 NOT NULL,
+	"tp_price" real DEFAULT 0.65 NOT NULL,
+	"scratch_price" real DEFAULT 0.45 NOT NULL,
+	"entry_lead_seconds_primary" integer DEFAULT 180 NOT NULL,
+	"entry_lead_seconds_refresh" integer DEFAULT 30 NOT NULL,
+	"post_start_cleanup_seconds" integer DEFAULT 10 NOT NULL,
+	"exit_ttl_seconds" integer DEFAULT 120 NOT NULL,
+	"order_size" real DEFAULT 5 NOT NULL,
+	"max_concurrent_cycles" integer DEFAULT 1 NOT NULL,
+	"smart_scratch_cancel" boolean DEFAULT true NOT NULL,
+	"vol_filter_enabled" boolean DEFAULT false NOT NULL,
+	"vol_min_threshold" real DEFAULT 0.3 NOT NULL,
+	"vol_max_threshold" real DEFAULT 5 NOT NULL,
+	"vol_window_minutes" integer DEFAULT 15 NOT NULL,
+	"dynamic_entry_enabled" boolean DEFAULT false NOT NULL,
+	"dynamic_entry_min" real DEFAULT 0.4 NOT NULL,
+	"dynamic_entry_max" real DEFAULT 0.48 NOT NULL,
+	"momentum_tp_enabled" boolean DEFAULT false NOT NULL,
+	"momentum_tp_min" real DEFAULT 0.55 NOT NULL,
+	"momentum_tp_max" real DEFAULT 0.75 NOT NULL,
+	"momentum_window_minutes" integer DEFAULT 5 NOT NULL,
+	"dynamic_size_enabled" boolean DEFAULT false NOT NULL,
+	"dynamic_size_min" real DEFAULT 3 NOT NULL,
+	"dynamic_size_max" real DEFAULT 20 NOT NULL,
+	"hour_filter_enabled" boolean DEFAULT false NOT NULL,
+	"hour_filter_allowed" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"multi_market_enabled" boolean DEFAULT false NOT NULL,
+	"additional_markets" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"dual_tp_mode" boolean DEFAULT false NOT NULL,
+	"auto_rotate_5m" boolean DEFAULT false NOT NULL,
+	"auto_rotate_5m_asset" text DEFAULT 'btc' NOT NULL,
+	"auto_rotate_interval" text DEFAULT '5m' NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "dual_entry_cycles" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"cycle_number" integer NOT NULL,
+	"state" "dual_entry_cycle_state" DEFAULT 'IDLE' NOT NULL,
+	"window_start" timestamp NOT NULL,
+	"window_end" timestamp,
+	"yes_order_id" text,
+	"no_order_id" text,
+	"yes_exchange_order_id" text,
+	"no_exchange_order_id" text,
+	"yes_filled" boolean DEFAULT false NOT NULL,
+	"no_filled" boolean DEFAULT false NOT NULL,
+	"yes_filled_size" real DEFAULT 0 NOT NULL,
+	"no_filled_size" real DEFAULT 0 NOT NULL,
+	"yes_filled_price" real,
+	"no_filled_price" real,
+	"winner_side" text,
+	"tp_order_id" text,
+	"scratch_order_id" text,
+	"tp_exchange_order_id" text,
+	"scratch_exchange_order_id" text,
+	"tp_filled" boolean DEFAULT false NOT NULL,
+	"scratch_filled" boolean DEFAULT false NOT NULL,
+	"outcome" text,
+	"pnl" real,
+	"logs" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"is_dry_run" boolean DEFAULT true NOT NULL,
+	"hour_of_day" integer,
+	"day_of_week" integer,
+	"btc_volatility" real,
+	"entry_method" text DEFAULT 'fixed' NOT NULL,
+	"actual_entry_price" real,
+	"actual_tp_price" real,
+	"actual_order_size" real,
+	"market_token_yes" text,
+	"market_token_no" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "fills" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"order_id" varchar NOT NULL,
+	"market_id" text NOT NULL,
+	"token_id" text,
+	"token_side" text,
+	"side" "order_side" NOT NULL,
+	"price" real NOT NULL,
+	"size" real NOT NULL,
+	"fee" real DEFAULT 0 NOT NULL,
+	"is_paper_trade" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "orders" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"client_order_id" text NOT NULL,
+	"exchange_order_id" text,
+	"market_id" text NOT NULL,
+	"token_id" text,
+	"token_side" text,
+	"side" "order_side" NOT NULL,
+	"price" real NOT NULL,
+	"size" real NOT NULL,
+	"filled_size" real DEFAULT 0 NOT NULL,
+	"status" "order_status" DEFAULT 'PENDING' NOT NULL,
+	"is_paper_trade" boolean DEFAULT true NOT NULL,
+	"is_maker_order" boolean DEFAULT true NOT NULL,
+	"oracle_direction" text,
+	"oracle_confidence" real,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "orders_client_order_id_unique" UNIQUE("client_order_id")
+);
+--> statement-breakpoint
+CREATE TABLE "pnl_records" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"date" text NOT NULL,
+	"realized_pnl" real DEFAULT 0 NOT NULL,
+	"unrealized_pnl" real DEFAULT 0 NOT NULL,
+	"total_pnl" real DEFAULT 0 NOT NULL,
+	"trades_count" integer DEFAULT 0 NOT NULL,
+	"win_count" integer DEFAULT 0 NOT NULL,
+	"loss_count" integer DEFAULT 0 NOT NULL,
+	"volume" real DEFAULT 0 NOT NULL,
+	"fees" real DEFAULT 0 NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "positions" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"market_id" text NOT NULL,
+	"token_id" text,
+	"token_side" text,
+	"side" "order_side" NOT NULL,
+	"size" real DEFAULT 0 NOT NULL,
+	"avg_entry_price" real DEFAULT 0 NOT NULL,
+	"target_exit_price" real,
+	"unrealized_pnl" real DEFAULT 0 NOT NULL,
+	"realized_pnl" real DEFAULT 0 NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);

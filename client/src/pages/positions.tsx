@@ -102,6 +102,7 @@ export default function Positions() {
                 <TableRow>
                   <TableHead>Market</TableHead>
                   <TableHead>Side</TableHead>
+                  <TableHead>Token</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead>Avg Entry</TableHead>
                   <TableHead>Unrealized PnL</TableHead>
@@ -119,6 +120,15 @@ export default function Positions() {
                       <span className={`font-medium ${pos.side === "BUY" ? "text-emerald-500" : "text-red-500"}`}>
                         {pos.side}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`text-xs font-semibold ${(pos.tokenSide as string) === "YES" ? "border-emerald-500/50 text-emerald-400" : (pos.tokenSide as string) === "NO" ? "border-red-500/50 text-red-400" : ""}`}
+                        data-testid={`badge-token-${pos.id}`}
+                      >
+                        {(pos.tokenSide as string) || "?"}
+                      </Badge>
                     </TableCell>
                     <TableCell className="font-mono">{pos.size.toFixed(2)}</TableCell>
                     <TableCell className="font-mono">${pos.avgEntryPrice.toFixed(4)}</TableCell>

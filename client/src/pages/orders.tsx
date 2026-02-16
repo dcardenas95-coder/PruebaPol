@@ -39,13 +39,8 @@ function sideBadgeClass(side: string) {
   return side === "BUY" ? "text-emerald-500" : "text-red-500";
 }
 
-function tokenSideLabel(order: Order): "YES" | "NO" {
-  if (!order.tokenId || order.tokenId === order.marketId) return "YES";
-  return "NO";
-}
-
 function OrderRow({ order, onCancel }: { order: Order; onCancel: (id: string) => void }) {
-  const token = tokenSideLabel(order);
+  const token = (order.tokenSide as "YES" | "NO") || "?";
   return (
     <TableRow data-testid={`row-order-${order.id}`}>
       <TableCell className="font-mono text-xs max-w-[120px] truncate">

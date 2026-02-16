@@ -352,9 +352,8 @@ export class StrategyEngine {
 
       if (config.isPaperTrading) {
         const activeOrders = await this.orderManager.getActiveOrders();
-        const tokenUpId = config.currentMarketId || "";
         for (const order of activeOrders) {
-          const isTokenDown = order.tokenId && order.tokenId !== tokenUpId && order.tokenId !== order.marketId;
+          const isTokenDown = order.tokenSide === "NO";
           const orderBookData = isTokenDown
             ? {
                 bestBid: parseFloat((1 - data.bestAsk).toFixed(4)),
@@ -409,9 +408,8 @@ export class StrategyEngine {
       if (newState === "MAKING" || newState === "UNWIND") {
         let stopLossData = data;
         const allPositions = await storage.getPositions();
-        const tokenDown = (config as any).currentMarketTokenDown;
         const hasTokenDownPositions = allPositions.some(p =>
-          p.size > 0 && tokenDown && p.marketId === tokenDown
+          p.size > 0 && p.tokenSide === "NO"
         );
         if (hasTokenDownPositions) {
           const tokenDownData = await this.getTokenDownData(config);
@@ -732,6 +730,7 @@ export class StrategyEngine {
       await this.orderManager.placeOrder({
         marketId,
         tokenId: effectiveTokenId,
+        tokenSide: oracleResult.tokenSide as "YES" | "NO",
         side: "BUY",
         price: entryPrice,
         size: effectiveSize,
@@ -850,14 +849,12 @@ export class StrategyEngine {
 
     if (openPositions.length === 0) return;
 
-    const tokenUpId = config.currentMarketId || "";
-
     const oracleSignal = binanceOracle.getSignal();
     const btcWentUp = oracleSignal.delta > 0;
 
     for (const pos of openPositions) {
-      const posTokenId = pos.tokenId || tokenUpId;
-      const isTokenDown = posTokenId !== tokenUpId;
+      const posTokenSide = pos.tokenSide as "YES" | "NO" | null;
+      const isTokenDown = posTokenSide === "NO";
 
       const settlementPrice = isTokenDown
         ? (btcWentUp ? 0.00 : 1.00)
@@ -868,7 +865,8 @@ export class StrategyEngine {
       await storage.createFill({
         orderId: "settlement",
         marketId: pos.marketId,
-        tokenId: posTokenId,
+        tokenId: pos.tokenId || pos.marketId,
+        tokenSide: posTokenSide,
         side: "SELL",
         price: settlementPrice,
         size: pos.size,
@@ -883,10 +881,11 @@ export class StrategyEngine {
 
       await storage.createEvent({
         type: "PNL_UPDATE",
-        message: `[SETTLEMENT] Market resolved: ${isTokenDown ? "tokenDown" : "tokenUp"} settled @ $${settlementPrice.toFixed(2)} (entry: $${pos.avgEntryPrice.toFixed(4)}, size: ${pos.size}, PnL: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)}) [BTC ${btcWentUp ? "UP" : "DOWN"}]`,
+        message: `[SETTLEMENT] Market resolved: ${posTokenSide || "?"} settled @ $${settlementPrice.toFixed(2)} (entry: $${pos.avgEntryPrice.toFixed(4)}, size: ${pos.size}, PnL: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)}) [BTC ${btcWentUp ? "UP" : "DOWN"}]`,
         data: {
           marketId: pos.marketId,
-          tokenId: posTokenId,
+          tokenId: pos.tokenId,
+          tokenSide: posTokenSide,
           isTokenDown,
           settlementPrice,
           entryPrice: pos.avgEntryPrice,
@@ -1195,13 +1194,11 @@ export class StrategyEngine {
         tokenSide: this.lastEntryTokenSide,
         price: this.lastEntryPrice!,
         size: this.lastEntrySize!,
-      } : (positions.length > 0 && config?.currentMarketId ? (() => {
+      } : (positions.length > 0 ? (() => {
         const pos = positions[0];
-        const tokenUpId = config.currentMarketId;
-        const posTokenId = pos.tokenId || pos.marketId;
-        const isTokenDown = posTokenId !== tokenUpId;
+        const side = pos.tokenSide as "YES" | "NO" | null;
         return {
-          tokenSide: isTokenDown ? "NO" as const : "YES" as const,
+          tokenSide: side || "YES" as const,
           price: pos.avgEntryPrice,
           size: pos.size,
         };
