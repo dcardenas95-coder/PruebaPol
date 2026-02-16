@@ -66,14 +66,17 @@ async function checkClobApi(): Promise<HealthCheckResult["checks"]["clobApi"]> {
   }
 }
 
-function checkWebSocket(): HealthCheckResult["checks"]["websocket"] {
+function checkWebSocket(botActive: boolean): HealthCheckResult["checks"]["websocket"] {
   const health: WsConnectionHealth = polymarketWs.getHealth();
   const now = Date.now();
   const lastMsg = health.marketLastMessage || health.userLastMessage || null;
   const lastMessageAge = lastMsg ? now - lastMsg : null;
 
   let status: "ok" | "degraded" | "error" = "ok";
-  if (!health.marketConnected && !health.userConnected) {
+
+  if (!botActive) {
+    status = "ok";
+  } else if (!health.marketConnected && !health.userConnected) {
     status = "error";
   } else if (!health.marketConnected || !health.userConnected) {
     status = "degraded";
@@ -109,15 +112,16 @@ function checkRateLimiter(): HealthCheckResult["checks"]["rateLimiter"] {
 }
 
 export async function runHealthCheck(): Promise<HealthCheckResult> {
-  const [rpc, clobApi, db] = await Promise.all([
+  const [rpc, clobApi, db, config] = await Promise.all([
     checkRpc(),
     checkClobApi(),
     checkDatabase(),
+    storage.getBotConfig().catch(() => null),
   ]);
-  const ws = checkWebSocket();
-  const rl = checkRateLimiter();
 
-  const config = await storage.getBotConfig().catch(() => null);
+  const botActive = config?.isActive ?? false;
+  const ws = checkWebSocket(botActive);
+  const rl = checkRateLimiter();
 
   const criticalFailures = [rpc.status === "error", clobApi.status === "error", db.status === "error"].filter(Boolean).length;
   const warnings = [ws.status !== "ok", rl.status !== "ok"].filter(Boolean).length;

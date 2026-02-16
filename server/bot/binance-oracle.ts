@@ -30,6 +30,15 @@ const DEFAULT_CONFIG: OracleConfig = {
   enabled: true,
 };
 
+const WS_ENDPOINTS = [
+  "wss://stream.binance.com:9443/ws/btcusdt@trade",
+  "wss://stream.binance.us:9443/ws/btcusdt@trade",
+  "wss://ws.coincap.io/prices?assets=bitcoin",
+];
+
+const REST_FALLBACK_URL = "https://api.coinbase.com/v2/prices/BTC-USD/spot";
+const REST_FALLBACK_INTERVAL_MS = 2000;
+
 export class BinanceOracle {
   private ws: WebSocket | null = null;
   private openingPrice = 0;
@@ -43,7 +52,13 @@ export class BinanceOracle {
   private lastLogTime = 0;
   private readonly BUFFER_MAX_SIZE = 3000;
   private readonly RECONNECT_BASE_MS = 2000;
-  private readonly RECONNECT_MAX_MS = 10000;
+  private readonly RECONNECT_MAX_MS = 30000;
+  private currentEndpointIndex = 0;
+  private geoBlockedEndpoints = new Set<number>();
+  private restPollingTimer: ReturnType<typeof setInterval> | null = null;
+  private activeSource: string = "none";
+  private wsConnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private manuallyDisconnected = false;
 
   getConfig(): OracleConfig {
     return { ...this.config };
@@ -53,25 +68,82 @@ export class BinanceOracle {
     this.config = { ...this.config, ...partial };
   }
 
+  getActiveSource(): string {
+    return this.activeSource;
+  }
+
   connect(): void {
+    this.manuallyDisconnected = false;
     if (this.ws) {
       this.disconnect();
+      this.manuallyDisconnected = false;
+    }
+    this.tryNextWebSocket();
+  }
+
+  private tryNextWebSocket(): void {
+    if (this.manuallyDisconnected) return;
+
+    while (this.geoBlockedEndpoints.has(this.currentEndpointIndex)) {
+      this.currentEndpointIndex++;
+      if (this.currentEndpointIndex >= WS_ENDPOINTS.length) {
+        console.log("[BinanceOracle] All WebSocket endpoints geo-blocked, falling back to REST polling");
+        this.startRestPolling();
+        return;
+      }
     }
 
+    if (this.currentEndpointIndex >= WS_ENDPOINTS.length) {
+      console.log("[BinanceOracle] All WebSocket endpoints exhausted, falling back to REST polling");
+      this.startRestPolling();
+      return;
+    }
+
+    const url = WS_ENDPOINTS[this.currentEndpointIndex];
+    const endpointIdx = this.currentEndpointIndex;
+    const sourceName = url.includes("binance.com") ? "binance.com" :
+                       url.includes("binance.us") ? "binance.us" :
+                       url.includes("coincap") ? "coincap" : "ws";
+
+    console.log(`[BinanceOracle] Trying ${sourceName}: ${url}`);
+
     try {
-      this.ws = new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@trade");
+      this.ws = new WebSocket(url);
+
+      this.wsConnectTimeout = setTimeout(() => {
+        if (!this.connected && this.ws) {
+          console.log(`[BinanceOracle] Connection timeout for ${sourceName}, trying next`);
+          this.ws.removeAllListeners();
+          try { this.ws.close(); } catch {}
+          this.ws = null;
+          this.currentEndpointIndex++;
+          this.tryNextWebSocket();
+        }
+      }, 8000);
 
       this.ws.on("open", () => {
+        if (this.wsConnectTimeout) {
+          clearTimeout(this.wsConnectTimeout);
+          this.wsConnectTimeout = null;
+        }
         this.connected = true;
         this.reconnectAttempts = 0;
-        console.log("[BinanceOracle] Connected to Binance btcusdt@trade stream");
+        this.activeSource = sourceName;
+        console.log(`[BinanceOracle] Connected via ${sourceName}`);
       });
 
       this.ws.on("message", (raw: Buffer) => {
         try {
           const data = JSON.parse(raw.toString());
+          let price: number | null = null;
+
           if (data.p) {
-            const price = parseFloat(data.p);
+            price = parseFloat(data.p);
+          } else if (data.bitcoin) {
+            price = parseFloat(data.bitcoin);
+          }
+
+          if (price && price > 0) {
             const ts = data.T || Date.now();
             this.currentPrice = price;
             this.priceBuffer.push({ price, ts });
@@ -83,46 +155,126 @@ export class BinanceOracle {
         } catch {}
       });
 
-      this.ws.on("close", () => {
+      this.ws.on("close", (code: number) => {
+        if (this.wsConnectTimeout) {
+          clearTimeout(this.wsConnectTimeout);
+          this.wsConnectTimeout = null;
+        }
         this.connected = false;
-        console.log("[BinanceOracle] WebSocket closed, scheduling reconnect");
-        this.scheduleReconnect();
+        this.activeSource = "none";
+        if (!this.manuallyDisconnected) {
+          console.log(`[BinanceOracle] ${sourceName} closed (code=${code}), scheduling reconnect`);
+          this.scheduleReconnect();
+        }
       });
 
       this.ws.on("error", (err: Error) => {
-        console.error(`[BinanceOracle] WebSocket error: ${err.message}`);
+        if (this.wsConnectTimeout) {
+          clearTimeout(this.wsConnectTimeout);
+          this.wsConnectTimeout = null;
+        }
         this.connected = false;
+
+        if (err.message.includes("451") || err.message.includes("403")) {
+          console.log(`[BinanceOracle] ${sourceName} geo-blocked (${err.message}), trying next source`);
+          this.geoBlockedEndpoints.add(endpointIdx);
+          if (this.ws) {
+            this.ws.removeAllListeners();
+            try { this.ws.close(); } catch {}
+            this.ws = null;
+          }
+          this.currentEndpointIndex++;
+          this.tryNextWebSocket();
+        } else {
+          console.error(`[BinanceOracle] ${sourceName} error: ${err.message}`);
+        }
       });
     } catch (err: any) {
-      console.error(`[BinanceOracle] Failed to connect: ${err.message}`);
-      this.scheduleReconnect();
+      console.error(`[BinanceOracle] Failed to connect to ${sourceName}: ${err.message}`);
+      this.currentEndpointIndex++;
+      this.tryNextWebSocket();
+    }
+  }
+
+  private startRestPolling(): void {
+    if (this.restPollingTimer) return;
+
+    this.activeSource = "coinbase-rest";
+    console.log("[BinanceOracle] Starting REST polling via Coinbase API");
+
+    this.fetchRestPrice();
+
+    this.restPollingTimer = setInterval(() => {
+      this.fetchRestPrice();
+    }, REST_FALLBACK_INTERVAL_MS);
+  }
+
+  private async fetchRestPrice(): Promise<void> {
+    try {
+      const resp = await fetch(REST_FALLBACK_URL);
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const data = await resp.json() as any;
+      const price = parseFloat(data?.data?.amount);
+      if (price && price > 0) {
+        this.currentPrice = price;
+        this.connected = true;
+        const ts = Date.now();
+        this.priceBuffer.push({ price, ts });
+
+        if (this.priceBuffer.length > this.BUFFER_MAX_SIZE) {
+          this.priceBuffer = this.priceBuffer.slice(-this.BUFFER_MAX_SIZE);
+        }
+      }
+    } catch (err: any) {
+      if (!this.connected) {
+        console.error(`[BinanceOracle] REST fallback error: ${err.message}`);
+      }
+    }
+  }
+
+  private stopRestPolling(): void {
+    if (this.restPollingTimer) {
+      clearInterval(this.restPollingTimer);
+      this.restPollingTimer = null;
     }
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
+    if (this.reconnectTimer || this.manuallyDisconnected) return;
     this.reconnectAttempts++;
     const delay = Math.min(
       this.RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts - 1),
       this.RECONNECT_MAX_MS
     );
+    console.log(`[BinanceOracle] Reconnect attempt ${this.reconnectAttempts} in ${Math.round(delay / 1000)}s`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.connect();
+      this.currentEndpointIndex = 0;
+      this.geoBlockedEndpoints.clear();
+      this.tryNextWebSocket();
     }, delay);
   }
 
   disconnect(): void {
+    this.manuallyDisconnected = true;
+    if (this.wsConnectTimeout) {
+      clearTimeout(this.wsConnectTimeout);
+      this.wsConnectTimeout = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopRestPolling();
     if (this.ws) {
       this.ws.removeAllListeners();
       try { this.ws.close(); } catch {}
       this.ws = null;
     }
     this.connected = false;
+    this.activeSource = "none";
   }
 
   markWindowStart(): void {
@@ -258,7 +410,7 @@ export class BinanceOracle {
   }
 
   isConnected(): boolean {
-    return this.connected && this.ws !== null;
+    return this.connected;
   }
 
   getStatus(): {
@@ -269,6 +421,7 @@ export class BinanceOracle {
     bufferSize: number;
     volatility5m: number;
     signal: PriceSignal;
+    source: string;
   } {
     const signal = this.getSignal();
     return {
@@ -279,6 +432,7 @@ export class BinanceOracle {
       bufferSize: this.priceBuffer.length,
       volatility5m: this.getVolatility(5),
       signal,
+      source: this.activeSource,
     };
   }
 }
@@ -288,6 +442,6 @@ export const binanceOracle = new BinanceOracle();
 setTimeout(() => {
   if (!binanceOracle.isConnected()) {
     binanceOracle.connect();
-    console.log("[BinanceOracle] Auto-connected on module load");
+    console.log("[BinanceOracle] Auto-connecting on module load");
   }
 }, 2000);
