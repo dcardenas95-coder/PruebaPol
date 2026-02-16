@@ -1,0 +1,433 @@
+# CAMBIO DE ESTRATEGIA: De "TP Scalping" a "Dual-Layer Hold-to-Resolution"
+
+## POR QUÉ ESTE CAMBIO
+
+Analicé 161 órdenes reales del bot y descubrí que la estrategia actual de Take Profit pierde dinero por diseño matemático. En un mercado binario de Polymarket:
+
+- Si compras a $0.47 con TP a $0.52: ganas $0.05 (10%) cuando aciertas, pierdes $0.47 (100%) cuando fallas. Necesitas >90% win rate para ser rentable. Imposible.
+- Si compras a $0.47 y HOLDS hasta resolución: ganas $0.53 (113%) cuando aciertas, pierdes $0.47 (100%) cuando fallas. Necesitas solo >47% win rate. El Oracle nos da ~52-55%.
+
+La estrategia nueva elimina el Take Profit como mecanismo principal y deja que el mercado resuelva automáticamente a $1.00 (ganador) o $0.00 (perdedor).
+
+## LA NUEVA ESTRATEGIA: DUAL-LAYER
+
+### Layer 1 — SEÑAL FUERTE (Oracle confidence ≥ 0.70, strength = "STRONG")
+- **Acción:** Comprar token según Oracle (YES si UP, NO si DOWN)
+- **Precio de entrada:** $0.40 a $0.52 como MAKER (limit order en el book)
+- **Size:** 5% del capital (con $200 = $10 → ~22 shares a $0.45)
+- **Salida:** NO salir. Mantener hasta resolución del mercado (5m/15m)
+- **Sin TP, sin stop-loss, sin UNWIND:** El mercado paga $1.00 o $0.00 automáticamente
+
+### Layer 2 — SEÑAL MODERADA (Oracle confidence ≥ 0.55, strength = "WEAK")
+- **Acción:** Comprar token según Oracle
+- **Precio de entrada:** $0.45 a $0.52 como MAKER
+- **Size:** 3% del capital (con $200 = $6 → ~13 shares a $0.45)
+- **Salida:** Hold to resolution (igual que Layer 1, pero con menos capital en riesgo)
+
+### Layer 3 — SIN SEÑAL o señal baja (confidence < 0.55 o strength = "NONE")
+- **Acción:** NO OPERAR. Esperar al siguiente mercado.
+
+### REGLA CRÍTICA: NO VENDER ANTES DE LA RESOLUCIÓN
+- Eliminar TP orders
+- Eliminar UNWIND (no vender al 50%)
+- HEDGE_LOCK solo debe CANCELAR órdenes de compra pendientes, NO vender posiciones existentes
+- Dejar que las posiciones resuelvan automáticamente al final del mercado
+
+---
+
+## IMPLEMENTACIÓN DETALLADA
+
+### CAMBIO 1: Precio de entrada máximo — NUNCA comprar arriba de $0.52
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `executeStrategy()`, después de calcular `entryPrice = data.bestBid` (~línea 856), agregar un filtro de precio máximo:
+
+```typescript
+const entryPrice = data.bestBid;
+
+// NUEVO: No comprar si el precio es demasiado alto
+// A precios >$0.52, el risk/reward es negativo (pierde más de lo que gana)
+const MAX_ENTRY_PRICE = 0.52;
+const MIN_ENTRY_PRICE = 0.10;
+
+if (entryPrice > MAX_ENTRY_PRICE) {
+  await storage.createEvent({
+    type: "INFO",
+    message: `[STRATEGY] Entry price $${entryPrice.toFixed(3)} > max $${MAX_ENTRY_PRICE} — skipping (risk/reward unfavorable)`,
+    data: { filter: "maxPrice", entryPrice, maxAllowed: MAX_ENTRY_PRICE },
+    level: "info",
+  });
+  return;
+}
+
+if (entryPrice < MIN_ENTRY_PRICE) {
+  await storage.createEvent({
+    type: "INFO",
+    message: `[STRATEGY] Entry price $${entryPrice.toFixed(3)} < min $${MIN_ENTRY_PRICE} — skipping (likely stale data)`,
+    data: { filter: "minPrice", entryPrice, minAllowed: MIN_ENTRY_PRICE },
+    level: "info",
+  });
+  return;
+}
+```
+
+### CAMBIO 2: Sizing basado en Oracle confidence (Dual-Layer)
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Reemplazar la lógica actual de sizing en `executeStrategy()`. Buscar el bloque donde se calcula `effectiveSize` (~línea 811-814):
+
+```typescript
+const sizerLevel = await progressiveSizer.getOrderSize(config.orderSize);
+const effectiveSize = binanceOracle.isConnected()
+  ? parseFloat((sizerLevel.size * oracleResult.sizeMultiplier).toFixed(2))
+  : sizerLevel.size;
+```
+
+Reemplazar con:
+
+```typescript
+// Dual-Layer sizing based on Oracle confidence
+const oracleConfidence = oracleSignal.confidence;
+let effectiveSize: number;
+let layer: string;
+
+if (oracleSignal.strength === "STRONG" && oracleConfidence >= 0.70) {
+  // Layer 1: Strong signal — 5% of capital risk
+  const maxRisk = config.maxNetExposure * 0.05; // 5% of maxNetExposure as proxy for capital
+  effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize).toFixed(2));
+  layer = "L1-STRONG";
+} else if (oracleSignal.strength === "WEAK" && oracleConfidence >= 0.55) {
+  // Layer 2: Moderate signal — 3% of capital risk
+  const maxRisk = config.maxNetExposure * 0.03; // 3% of maxNetExposure
+  effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize * 0.6).toFixed(2));
+  layer = "L2-MODERATE";
+} else {
+  // Layer 3: No signal — do NOT trade
+  await storage.createEvent({
+    type: "INFO",
+    message: `[STRATEGY] Layer 3: Oracle too weak (confidence=${(oracleConfidence * 100).toFixed(0)}%, strength=${oracleSignal.strength}) — no trade`,
+    data: { filter: "layer3", confidence: oracleConfidence, strength: oracleSignal.strength },
+    level: "info",
+  });
+  return;
+}
+
+// Minimum viable size
+if (effectiveSize < 1) {
+  effectiveSize = 1;
+}
+```
+
+NOTA: `entryPrice` se usa aquí. Asegúrate de que este bloque esté DESPUÉS de calcular `entryPrice` y DESPUÉS del filtro de MAX_ENTRY_PRICE del cambio 1.
+
+### CAMBIO 3: Eliminar Take Profit orders — HOLD TO RESOLUTION
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `executeStrategy()`, ELIMINAR o COMENTAR la línea que llama a `ensureTakeProfitOrders` (~línea 800):
+
+```typescript
+// ANTES:
+await this.ensureTakeProfitOrders(config, data, tpOrders, tokenId, marketId, negRisk, tickSize);
+
+// DESPUÉS:
+// HOLD-TO-RESOLUTION: No colocar TP orders.
+// El mercado resuelve automáticamente a $1.00 o $0.00
+// await this.ensureTakeProfitOrders(config, data, tpOrders, tokenId, marketId, negRisk, tickSize);
+```
+
+También en `setupTakeProfitCallback` (~línea 177), desactivar el callback de TP:
+
+```typescript
+private setupTakeProfitCallback(config: BotConfig): void {
+  // HOLD-TO-RESOLUTION: TP callback desactivado
+  // Las posiciones se mantienen hasta que el mercado resuelve
+  return;
+  
+  // ... resto del código original queda comentado o sin tocar ...
+}
+```
+
+### CAMBIO 4: UNWIND ya NO vende — solo cancela órdenes de compra pendientes
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Reemplazar `executeUnwind()` completamente (~línea 960-991):
+
+```typescript
+private async executeUnwind(config: BotConfig, data: MarketData): Promise<void> {
+  // HOLD-TO-RESOLUTION: UNWIND ya no vende posiciones.
+  // Solo cancela órdenes de COMPRA pendientes para no abrir más posiciones.
+  
+  const activeOrders = await this.orderManager.getActiveOrders();
+  const buyOrders = activeOrders.filter(o => o.side === "BUY");
+  
+  if (buyOrders.length > 0) {
+    for (const order of buyOrders) {
+      await this.orderManager.cancelOrder(order.id);
+    }
+    await storage.createEvent({
+      type: "INFO",
+      message: `[UNWIND] Cancelled ${buyOrders.length} pending BUY orders — holding positions to resolution`,
+      data: { cancelledBuys: buyOrders.length },
+      level: "info",
+    });
+  }
+  
+  // Log current position status
+  const positions = await storage.getPositions();
+  const openPositions = positions.filter(p => p.size > 0);
+  if (openPositions.length > 0) {
+    const totalSize = openPositions.reduce((sum, p) => sum + p.size, 0);
+    const avgEntry = openPositions.reduce((sum, p) => sum + p.avgEntryPrice * p.size, 0) / totalSize;
+    await storage.createEvent({
+      type: "INFO",
+      message: `[UNWIND] Holding ${totalSize.toFixed(1)} shares @ avg $${avgEntry.toFixed(3)} to resolution (no selling)`,
+      data: { totalSize, avgEntry, positionCount: openPositions.length },
+      level: "info",
+    });
+  }
+}
+```
+
+### CAMBIO 5: HEDGE_LOCK ya NO vende — solo limpieza
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Reemplazar `executeHedgeLock()` completamente (~línea 996-1100):
+
+```typescript
+private async executeHedgeLock(config: BotConfig, data: MarketData): Promise<void> {
+  // HOLD-TO-RESOLUTION: HEDGE_LOCK ya no vende a precio de pánico.
+  // Las posiciones se resuelven automáticamente cuando el mercado cierra.
+  // Solo cancela órdenes pendientes.
+  
+  const activeOrders = await this.orderManager.getActiveOrders();
+  if (activeOrders.length > 0) {
+    await this.orderManager.cancelAllOrders();
+    await storage.createEvent({
+      type: "INFO",
+      message: `[HEDGE_LOCK] Cancelled ${activeOrders.length} pending orders — positions will resolve at market close`,
+      data: { cancelledOrders: activeOrders.length },
+      level: "info",
+    });
+  }
+  
+  // Log position status for visibility
+  const positions = await storage.getPositions();
+  const openPositions = positions.filter(p => p.size > 0);
+  if (openPositions.length > 0) {
+    const totalSize = openPositions.reduce((sum, p) => sum + p.size, 0);
+    const avgEntry = openPositions.reduce((sum, p) => sum + p.avgEntryPrice * p.size, 0) / totalSize;
+    const currentPrice = data.bestBid;
+    const unrealizedPnl = (currentPrice - avgEntry) * totalSize;
+    
+    await storage.createEvent({
+      type: "INFO",
+      message: `[HEDGE_LOCK] Holding to resolution: ${totalSize.toFixed(1)} shares @ avg $${avgEntry.toFixed(3)} | current $${currentPrice.toFixed(3)} | unrealized ${unrealizedPnl >= 0 ? '+' : ''}$${unrealizedPnl.toFixed(4)}`,
+      data: { totalSize, avgEntry, currentPrice, unrealizedPnl, willResolveAt: "market_close" },
+      level: "info",
+    });
+  }
+}
+```
+
+### CAMBIO 6: Limitar a 1 orden de compra por mercado
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `executeStrategy()`, cambiar el límite de entry orders (~línea 802):
+
+```typescript
+// ANTES:
+if (entryOrders.length >= 3) return;
+
+// DESPUÉS:
+// HOLD-TO-RESOLUTION: Solo 1 entrada por mercado
+// No acumular posición — una apuesta directional por mercado
+if (entryOrders.length >= 1) return;
+
+// También verificar si ya tenemos posición abierta en este mercado
+const positions = await storage.getPositions();
+const existingPosition = positions.find(p => p.size > 0);
+if (existingPosition) {
+  // Ya tenemos posición — no abrir más
+  return;
+}
+```
+
+### CAMBIO 7: Agregar log del Layer y resultado esperado
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En el bloque de logging después de `placeOrder` (~línea 870-877), actualizar el mensaje:
+
+```typescript
+if (binanceOracle.isConnected()) {
+  await storage.createEvent({
+    type: "INFO",
+    message: `[${layer}] ENTRY: ${oracleResult.tokenSide} @ $${entryPrice.toFixed(3)} × ${effectiveSize} shares | Oracle: ${oracleSignal.direction}/${oracleSignal.strength} conf=${(oracleSignal.confidence * 100).toFixed(0)}% delta=$${oracleSignal.delta.toFixed(2)} | HOLD TO RESOLUTION | Win=$${((1.0 - entryPrice) * effectiveSize).toFixed(2)} / Loss=-$${(entryPrice * effectiveSize).toFixed(2)}`,
+    data: { 
+      layer,
+      oracle: oracleSignal, 
+      effectiveSize, 
+      entryPrice,
+      expectedWin: (1.0 - entryPrice) * effectiveSize,
+      expectedLoss: entryPrice * effectiveSize,
+      riskRewardRatio: ((1.0 - entryPrice) / entryPrice).toFixed(2),
+      holdStrategy: "RESOLUTION",
+    },
+    level: "info",
+  });
+}
+```
+
+### CAMBIO 8: Resolución de mercado — registrar PnL real al finalizar
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En `switchToMarket()` (~línea 1180+), cuando el bot rota al siguiente mercado, ANTES de limpiar posiciones, calcular el PnL de resolución:
+
+Buscar donde se llama a `await this.orderManager.cancelAllOrders()` dentro de `switchToMarket()` y ANTES de eso, agregar:
+
+```typescript
+// HOLD-TO-RESOLUTION: Calcular PnL basado en resolución del mercado
+const positions = await storage.getPositions();
+const openPositions = positions.filter(p => p.size > 0);
+
+if (openPositions.length > 0) {
+  // Obtener precio final del mercado para determinar resolución
+  const finalData = await this.marketData.getData();
+  const finalPrice = finalData.bestBid;
+  
+  for (const pos of openPositions) {
+    // En mercados binarios: si finalPrice > 0.5, YES gana ($1), si < 0.5, NO gana ($1)
+    // Nuestro token resolvió a $1 si finalPrice > 0.5, o $0 si finalPrice < 0.5
+    const resolved = finalPrice >= 0.50 ? 1.0 : 0.0;
+    const pnl = (resolved - pos.avgEntryPrice) * pos.size;
+    const isWin = pnl > 0;
+    
+    await storage.createEvent({
+      type: "PNL_UPDATE",
+      message: `[RESOLUTION] Market closed: ${pos.size.toFixed(1)} shares @ avg $${pos.avgEntryPrice.toFixed(3)} → resolved $${resolved.toFixed(2)} | PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(4)} (${isWin ? 'WIN ✅' : 'LOSS ❌'})`,
+      data: { 
+        marketId: pos.marketId,
+        size: pos.size, 
+        avgEntry: pos.avgEntryPrice, 
+        resolvedPrice: resolved,
+        finalBid: finalPrice,
+        realizedPnl: pnl, 
+        isWin,
+        strategy: "HOLD_TO_RESOLUTION",
+      },
+      level: isWin ? "info" : "warn",
+    });
+    
+    // Actualizar PnL diario
+    this.riskManager.recordTradeResult(pnl);
+    await this.updateDailyPnl(pnl, isWin, pos.size * pos.avgEntryPrice);
+    
+    // Limpiar posición
+    await storage.deletePosition(pos.id);
+  }
+}
+```
+
+### CAMBIO 9: Ajustar calculateState — UNWIND más temprano para dejar de comprar
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+Cambiar los umbrales de tiempo en `calculateState()` (~línea 733-741):
+
+```typescript
+private calculateState(current: BotState, remainingMs: number): BotState {
+  if (current === "STOPPED") return current;
+  if (current === "DONE") return current;
+  if (remainingMs <= 0) return "DONE";
+  if (remainingMs <= 15000) return "HEDGE_LOCK";   // Últimos 15s: solo limpieza (antes: 45s)
+  if (remainingMs <= 30000) return "CLOSE_ONLY";   // Últimos 30s: no más órdenes (antes: 60s)
+  if (remainingMs <= 60000) return "UNWIND";        // Último minuto: cancelar BUYs pendientes (antes: 120s)
+  return "MAKING";                                  // Resto del tiempo: operar normalmente
+}
+```
+
+Esto le da al bot MÁS tiempo en MAKING (comprando) y MENOS tiempo en las fases de cierre, porque ya no necesita tiempo para vender — las posiciones se resuelven solas.
+
+### CAMBIO 10: Config defaults — ajustar parámetros por defecto
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+En el fallback config al final del archivo (~línea 1330+), actualizar los defaults:
+
+```typescript
+// Buscar los defaults de targetProfitMin/Max y orderSize:
+targetProfitMin: 0.03,
+targetProfitMax: 0.05,
+orderSize: 10,
+
+// Cambiar a:
+targetProfitMin: 0.40,   // No se usa en hold-to-resolution, pero si se reactiva TP
+targetProfitMax: 0.53,   // Rango "ideal" de entrada — informativo
+orderSize: 5,            // Reducido de 10 a 5 shares por defecto
+maxNetExposure: 200,     // Proxy para capital total
+```
+
+### CAMBIO 11: Oracle — reducir threshold para más señales operables
+
+**Archivo: `server/bot/binance-oracle.ts`**
+
+Cambiar los defaults (~línea 26-31):
+
+```typescript
+const DEFAULT_CONFIG: OracleConfig = {
+  strongThreshold: 20,     // Antes: 30. BTC $20 move en 5m = señal fuerte
+  weakThreshold: 10,       // Antes: 15. BTC $10 move = señal moderada
+  minConfidence: 0.50,     // Antes: 0.60. Más permisivo para generar trades
+  enabled: true,
+};
+```
+
+### CAMBIO 12: Limpiar hedgeLockRepriceTimers ya que HEDGE_LOCK no vende
+
+**Archivo: `server/bot/strategy-engine.ts`**
+
+La propiedad `hedgeLockRepriceTimers` ya no se necesita. En `switchToMarket()` o donde se limpien estos timers:
+
+```typescript
+// Limpiar timers legacy
+for (const timer of this.hedgeLockRepriceTimers) {
+  clearTimeout(timer);
+}
+this.hedgeLockRepriceTimers = [];
+```
+
+Esto ya debería existir, pero asegúrate de que se ejecute.
+
+---
+
+## RESUMEN DE ARCHIVOS MODIFICADOS
+
+| Archivo | Cambios |
+|---------|---------|
+| `server/bot/strategy-engine.ts` | Cambios 1-10, 12: precio max/min, sizing dual-layer, eliminar TP, UNWIND/HEDGE_LOCK no venden, 1 orden por mercado, resolución PnL, timing FSM, defaults |
+| `server/bot/binance-oracle.ts` | Cambio 11: thresholds más permisivos |
+
+## VERIFICACIÓN POST-IMPLEMENTACIÓN
+
+Corre el bot en PAPER trading durante 1 hora (12 mercados de 5m) y verifica:
+
+1. ✅ NUNCA compra arriba de $0.52
+2. ✅ Compra 1 sola vez por mercado (no acumula)
+3. ✅ NO coloca órdenes de SELL (sin TP)
+4. ✅ UNWIND solo cancela BUYs pendientes, NO vende
+5. ✅ HEDGE_LOCK solo cancela órdenes, NO vende
+6. ✅ Al rotar mercado, log `[RESOLUTION]` muestra PnL real ($1 o $0)
+7. ✅ Log muestra Layer (L1-STRONG o L2-MODERATE) y risk/reward ratio
+8. ✅ Con señal débil, log muestra "Layer 3: no trade" y NO opera
+9. ✅ PnL diario se actualiza correctamente con wins y losses
+
+## NOTA SOBRE PAPER TRADING
+
+En paper trading, el `simulateFill()` de `order-manager.ts` simula fills automáticos. Esto está bien para compras. Pero como ya no vendemos, el bot no va a generar PnL hasta que rote al siguiente mercado y el `switchToMarket()` calcule la resolución. Esto es el comportamiento correcto: el PnL se materializa al cerrar el mercado, no durante.
