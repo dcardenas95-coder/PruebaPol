@@ -1,0 +1,42 @@
+# BUG CRÍTICO: El bot está comprando tokens YES y NO simultáneamente y vendiendo todo al precio más bajo
+
+## EVIDENCIA
+
+Analicé el CSV de órdenes reales (`orders_2026-02-15__7_.csv`) y descubrí lo siguiente:
+
+En CADA mercado de 5 minutos, el bot coloca BUYs a DOS rangos de precio que suman ~$1.00:
+```
+23:50:38  BUY 3.75 @ $0.710   ← Esto es el token YES
+23:50:40  BUY 3.75 @ $0.730   ← Esto es el token YES  
+23:50:46  BUY 3.75 @ $0.240   ← Esto es el token NO ($0.73 + $0.24 = $0.97 ≈ $1)
+23:50:50  SELL 7.50 @ $0.235  ← Vende TODO al precio del lado barato
+```
+
+Esto pasa en los 6 mercados operados. Resultado: -$47.76 en 30 minutos. Precio promedio de compra $0.57, precio promedio de venta $0.19. Cero mercados ganadores.
+
+## QUÉ NECESITO QUE VERIFIQUES
+
+1. Abre `server/bot/strategy-engine.ts`, método `executeStrategy()`
+2. Busca cómo se determina el `tokenId` que se pasa a `placeOrder()`
+3. Verifica si `config.currentMarketId` cambia entre el token YES y el token NO durante el ciclo de vida de un mercado
+4. Busca si hay ALGÚN lugar donde se use `config.currentMarketTokenDown` o `(config as any).marketTokenNo` para comprar — o si SIEMPRE se usa `config.currentMarketId` (que debería ser solo tokenUp)
+5. Revisa `market-data.ts` método `getData()`: ¿puede retornar datos del token NO cuando el bot cree que está viendo datos del token YES?
+6. Revisa si el WebSocket (`polymarket-ws.ts`) se suscribe a AMBOS tokens (YES y NO) pero el `_handleMarketMessage` mezcla los datos de ambos en un solo `lastMarketData`
+
+## MI HIPÓTESIS
+
+El WebSocket se suscribe a ambos asset IDs (tokenUp Y tokenDown) en `getMarketAssetIds()`. Cuando llega un mensaje `"book"` o `"price_change"`, el handler no distingue de cuál token viene. Entonces `lastMarketData` oscila entre los datos del token YES (bestBid ~$0.72) y del token NO (bestBid ~$0.24). El bot ve $0.72 → compra, luego ve $0.24 → compra otra vez pensando que es el mismo token más barato. Al vender, el bestBid que ve es $0.23 y vende todo ahí.
+
+## LA CORRECCIÓN
+
+Si mi hipótesis es correcta, necesitas:
+
+1. **En `getMarketAssetIds()`**: Suscribir el WebSocket SOLO al token que se va a operar (`currentMarketId` = tokenUp), NO a ambos tokens. O si necesitas ambos, separar los datos en dos objetos diferentes.
+
+2. **En `_handleMarketMessage()` de `polymarket-ws.ts`**: Si recibes datos de ambos tokens, filtrar por `asset_id` y solo actualizar `lastMarketData` con datos del token activo (`currentMarketId`).
+
+3. **En `executeStrategy()`**: Verificar que `data.bestBid` sea consistente con el token que se está comprando. Si el precio saltó más de 30% entre ticks ($0.72 → $0.24), es porque cambió de token — NUNCA operar en ese caso.
+
+4. **Agregar un safety check**: Si `data.bestBid` del tick actual difiere más de $0.20 del tick anterior, logear una alerta y NO operar. Esto previene compras en el token equivocado.
+
+Aplica la corrección y después corre paper trading 30 minutos. Deberías ver que TODAS las compras están en el mismo rango de precio ($0.45-$0.75 para YES, o $0.25-$0.55 para NO), nunca mezcladas.
