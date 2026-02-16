@@ -31,6 +31,8 @@ export class StrategyEngine {
   private liquidatingStartTime = 0;
   private readonly LIQUIDATION_PATIENCE_MS = 60000;
   private liquidationInterval: ReturnType<typeof setInterval> | null = null;
+  private lastSeenBestBid = 0;
+  private readonly PRICE_JUMP_THRESHOLD = 0.20;
 
   constructor() {
     this.marketData = new MarketDataModule();
@@ -44,6 +46,7 @@ export class StrategyEngine {
     const intervalSec = this.MARKET_DURATION / 1000;
     const elapsedInCurrentInterval = (nowSec % intervalSec) * 1000;
     this.marketCycleStart = nowMs - elapsedInCurrentInterval;
+    this.lastSeenBestBid = 0;
     console.log(`[StrategyEngine] Aligned cycle start to market boundary: elapsed=${Math.floor(elapsedInCurrentInterval / 1000)}s, remaining=${Math.floor((this.MARKET_DURATION - elapsedInCurrentInterval) / 1000)}s`);
   }
 
@@ -254,6 +257,7 @@ export class StrategyEngine {
 
     if (config.currentMarketId) {
       const assetIds = this.getMarketAssetIds(config);
+      polymarketWs.setActiveAssetId(config.currentMarketId);
       polymarketWs.connectMarket(assetIds);
       this.marketData.setWsDataSource(polymarketWs);
 
@@ -296,13 +300,6 @@ export class StrategyEngine {
     const ids: string[] = [];
     if (config.currentMarketId) {
       ids.push(config.currentMarketId);
-    }
-    const configAny = config as any;
-    if (configAny.marketTokenYes && configAny.marketTokenYes !== config.currentMarketId) {
-      ids.push(configAny.marketTokenYes);
-    }
-    if (configAny.marketTokenNo && configAny.marketTokenNo !== config.currentMarketId) {
-      ids.push(configAny.marketTokenNo);
     }
     return ids;
   }
@@ -831,6 +828,18 @@ export class StrategyEngine {
   }
 
   private async executeStrategy(config: BotConfig, data: MarketData): Promise<void> {
+    if (this.lastSeenBestBid > 0 && Math.abs(data.bestBid - this.lastSeenBestBid) > this.PRICE_JUMP_THRESHOLD) {
+      await storage.createEvent({
+        type: "RISK_ALERT",
+        message: `[SAFETY] Price jump detected: $${this.lastSeenBestBid.toFixed(4)} → $${data.bestBid.toFixed(4)} (Δ${Math.abs(data.bestBid - this.lastSeenBestBid).toFixed(4)} > ${this.PRICE_JUMP_THRESHOLD}) — skipping tick, possible mixed token data`,
+        data: { filter: "priceJump", previous: this.lastSeenBestBid, current: data.bestBid, delta: Math.abs(data.bestBid - this.lastSeenBestBid) },
+        level: "error",
+      });
+      this.lastSeenBestBid = data.bestBid;
+      return;
+    }
+    this.lastSeenBestBid = data.bestBid;
+
     if (!this.marketData.isSpreadSufficient(config.minSpread)) {
       const lastData = this.marketData.getLastData();
       await storage.createEvent({
@@ -1421,7 +1430,8 @@ export class StrategyEngine {
     polymarketWs.disconnectAll();
     this.wsSetup = false;
 
-    const assetIds = [market.tokenUp, market.tokenDown];
+    const assetIds = [market.tokenUp];
+    polymarketWs.setActiveAssetId(market.tokenUp);
     polymarketWs.connectMarket(assetIds);
     this.marketData.setWsDataSource(polymarketWs);
 

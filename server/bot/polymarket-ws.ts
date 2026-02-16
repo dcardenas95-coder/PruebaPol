@@ -65,6 +65,7 @@ export class PolymarketWebSocket {
   private onFillCallbacks: FillCallback[] = [];
   private onMarketDataCallbacks: MarketDataCallback[] = [];
   private lastMarketData: MarketData | null = null;
+  private activeAssetId: string | null = null;
   private onRefreshAssetIdsCallback: (() => Promise<string[]>) | null = null;
 
   onFill(cb: FillCallback) {
@@ -94,6 +95,15 @@ export class PolymarketWebSocket {
 
   getLastMarketData(): MarketData | null {
     return this.lastMarketData;
+  }
+
+  setActiveAssetId(assetId: string): void {
+    this.activeAssetId = assetId;
+    this.log("info", `Active asset ID set to: ${assetId.slice(0, 12)}...`);
+  }
+
+  getActiveAssetId(): string | null {
+    return this.activeAssetId;
   }
 
   private isValidAssetId(id: string): boolean {
@@ -358,6 +368,16 @@ export class PolymarketWebSocket {
 
   private _handleMarketMessage(data: any): void {
     if (!data || typeof data !== "object") return;
+
+    const msgAssetId = data.asset_id || data.market || "";
+    if (this.activeAssetId) {
+      if (!msgAssetId) {
+        return;
+      }
+      if (msgAssetId !== this.activeAssetId) {
+        return;
+      }
+    }
 
     const eventType = data.event_type;
 
