@@ -346,11 +346,6 @@ export class StrategyEngine {
       const elapsed = Date.now() - this.marketCycleStart;
       const remaining = this.MARKET_DURATION - elapsed;
 
-      const newState = this.calculateState(config.currentState as BotState, remaining);
-      if (newState !== config.currentState) {
-        await this.transitionState(config.currentState as BotState, newState);
-      }
-
       if (config.isPaperTrading) {
         const activeOrders = await this.orderManager.getActiveOrders();
         for (const order of activeOrders) {
@@ -406,66 +401,74 @@ export class StrategyEngine {
         return;
       }
 
-      if (newState === "MAKING" || newState === "UNWIND") {
-        let stopLossData = data;
-        const allPositions = await storage.getPositions();
-        const hasTokenDownPositions = allPositions.some(p =>
-          p.size > 0 && p.tokenSide === "NO"
-        );
-        if (hasTokenDownPositions) {
-          const tokenDownData = await this.getTokenDownData(config);
-          if (tokenDownData) {
-            stopLossData = tokenDownData;
+      if (config.activeStrategy === "fsm") {
+        const newState = this.calculateState(config.currentState as BotState, remaining);
+        if (newState !== config.currentState) {
+          await this.transitionState(config.currentState as BotState, newState);
+        }
+
+        if (newState === "MAKING" || newState === "UNWIND") {
+          let stopLossData = data;
+          const allPositions = await storage.getPositions();
+          const hasTokenDownPositions = allPositions.some(p =>
+            p.size > 0 && p.tokenSide === "NO"
+          );
+          if (hasTokenDownPositions) {
+            const tokenDownData = await this.getTokenDownData(config);
+            if (tokenDownData) {
+              stopLossData = tokenDownData;
+            }
+          }
+          const stopLossResults = await stopLossManager.checkAllPositions(stopLossData, remaining, this.MARKET_DURATION);
+          for (const sl of stopLossResults) {
+            await storage.createEvent({
+              type: "RISK_ALERT",
+              message: `[STOP-LOSS] ${sl.reason} (logged only, no sell in hold-to-resolution) | Position ${sl.marketId} entry=$${sl.entryPrice.toFixed(4)} current=$${sl.currentPrice.toFixed(4)} loss=${(sl.lossPct * 100).toFixed(1)}%`,
+              data: { ...sl, holdToResolution: true },
+              level: "warn",
+            });
           }
         }
-        const stopLossResults = await stopLossManager.checkAllPositions(stopLossData, remaining, this.MARKET_DURATION);
-        for (const sl of stopLossResults) {
-          // HOLD-TO-RESOLUTION: Log stop-loss alerts but do NOT sell — positions resolve at market close
-          await storage.createEvent({
-            type: "RISK_ALERT",
-            message: `[STOP-LOSS] ${sl.reason} (logged only, no sell in hold-to-resolution) | Position ${sl.marketId} entry=$${sl.entryPrice.toFixed(4)} current=$${sl.currentPrice.toFixed(4)} loss=${(sl.lossPct * 100).toFixed(1)}%`,
-            data: { ...sl, holdToResolution: true },
-            level: "warn",
-          });
+
+        if (newState === "MAKING") {
+          await this.executeStrategy(config, data);
+        } else if (newState === "UNWIND") {
+          await this.executeUnwind(config, data);
+        } else if (newState === "HEDGE_LOCK") {
+          await this.executeHedgeLock(config, data);
+        } else if (newState === "DONE") {
+          if (this.waitForMarketInterval) return;
+
+          this.cycleCount++;
+          this.lastEntryTokenSide = null;
+          this.lastEntryPrice = null;
+          this.lastEntrySize = null;
+
+          await this.orderManager.cancelAllOrders();
+
+          await this.settleMarketResolution(config, data);
+
+          if (config.autoRotate) {
+            await this.rotateToNextMarket(config);
+          } else {
+            this.alignCycleStartToMarketBoundary();
+            await storage.updateBotConfig({ currentState: "MAKING" });
+            await storage.createEvent({
+              type: "STATE_CHANGE",
+              message: `Market cycle ${this.cycleCount} completed, starting new cycle (same market). Remaining: ${Math.floor(this.getMarketRemainingMs() / 1000)}s`,
+              data: { cycle: this.cycleCount, remainingMs: this.getMarketRemainingMs() },
+              level: "info",
+            });
+          }
         }
       }
 
-      if (newState === "MAKING") {
-        await this.executeStrategy(config, data);
-      } else if (newState === "UNWIND") {
-        await this.executeUnwind(config, data);
-      } else if (newState === "HEDGE_LOCK") {
-        await this.executeHedgeLock(config, data);
-      } else if (newState === "DONE") {
-        if (this.waitForMarketInterval) return;
-
-        this.cycleCount++;
-        this.lastEntryTokenSide = null;
-        this.lastEntryPrice = null;
-        this.lastEntrySize = null;
-
-        await this.orderManager.cancelAllOrders();
-
-        await this.settleMarketResolution(config, data);
-
-        if (config.autoRotate) {
-          await this.rotateToNextMarket(config);
-        } else {
-          this.alignCycleStartToMarketBoundary();
-          await storage.updateBotConfig({ currentState: "MAKING" });
-          await storage.createEvent({
-            type: "STATE_CHANGE",
-            message: `Market cycle ${this.cycleCount} completed, starting new cycle (same market). Remaining: ${Math.floor(this.getMarketRemainingMs() / 1000)}s`,
-            data: { cycle: this.cycleCount, remainingMs: this.getMarketRemainingMs() },
-            level: "info",
-          });
+      if (config.activeStrategy === "dual_buy") {
+        try {
+          await dualBuyManager.tick(config, this.orderManager);
+        } catch (dbErr: any) {
+          console.error(`[DualBuy] tick error: ${dbErr.message}`);
         }
-      }
-
-      try {
-        await dualBuyManager.tick(config, this.orderManager);
-      } catch (dbErr: any) {
-        console.error(`[DualBuy] tick error: ${dbErr.message}`);
       }
     } catch (error: any) {
       await storage.createEvent({
@@ -1175,7 +1178,7 @@ export class StrategyEngine {
         autoRotate: false,
         autoRotateAsset: "btc",
         autoRotateInterval: "5m",
-        dualBuyEnabled: false,
+        activeStrategy: "fsm",
         dualBuyPrice: 0.45,
         dualBuySize: 1,
         dualBuyLeadSeconds: 30,
@@ -1208,7 +1211,7 @@ export class StrategyEngine {
       stopLoss: stopLossManager.getStatus(),
       progressiveSizer: sizerStatus,
       marketRegime: marketRegimeFilter.getStatus(marketData),
-      dualBuy: dualBuyManager.getStatus(config || { dualBuyEnabled: false, dualBuyPrice: 0.45, dualBuySize: 1, dualBuyLeadSeconds: 30, isActive: false, autoRotateAsset: "btc", autoRotateInterval: "5m" } as any, remainingMs),
+      dualBuy: dualBuyManager.getStatus(config || { activeStrategy: "fsm", dualBuyPrice: 0.45, dualBuySize: 1, dualBuyLeadSeconds: 30, isActive: false, autoRotateAsset: "btc", autoRotateInterval: "5m" } as any, remainingMs),
       lastEntry: this.lastEntryTokenSide ? {
         tokenSide: this.lastEntryTokenSide,
         price: this.lastEntryPrice!,

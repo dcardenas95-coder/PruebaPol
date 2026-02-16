@@ -16,7 +16,7 @@ export class DualBuyManager {
     const leadSeconds = config.dualBuyLeadSeconds || 30;
 
     let nextPlacementIn: number | null = null;
-    if (config.dualBuyEnabled && config.isActive) {
+    if (config.activeStrategy === "dual_buy" && config.isActive) {
       const nextInfo = computeNextIntervalSlug(asset, interval);
       const msUntilNextMarket = nextInfo.startsInMs;
       const placementMs = msUntilNextMarket - (leadSeconds * 1000);
@@ -28,7 +28,7 @@ export class DualBuyManager {
     }
 
     return {
-      enabled: config.dualBuyEnabled || false,
+      enabled: config.activeStrategy === "dual_buy",
       price: config.dualBuyPrice || 0.45,
       size: config.dualBuySize || 1,
       leadSeconds,
@@ -39,7 +39,7 @@ export class DualBuyManager {
   }
 
   async tick(config: BotConfig, orderManager: OrderManager): Promise<void> {
-    if (!config.dualBuyEnabled || !config.isActive || config.killSwitchActive) return;
+    if (config.activeStrategy !== "dual_buy" || !config.isActive || config.killSwitchActive) return;
     if (this.placing) return;
 
     const asset = (config.autoRotateAsset || "btc") as AssetType;
