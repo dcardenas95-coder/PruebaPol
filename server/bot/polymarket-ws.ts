@@ -5,12 +5,12 @@ import type { MarketData } from "@shared/schema";
 const WS_MARKET_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 const WS_USER_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/user";
 
-const PING_INTERVAL = 30_000;
-const INITIAL_RECONNECT_DELAY = 2_000;
-const MAX_RECONNECT_DELAY = 60_000;
-const RECONNECT_BACKOFF_FACTOR = 2;
+const PING_INTERVAL = 10_000;
+const INITIAL_RECONNECT_DELAY = 1_000;
+const MAX_RECONNECT_DELAY = 30_000;
+const RECONNECT_BACKOFF_FACTOR = 1.5;
 const MAX_RECONNECT_ATTEMPTS = 100;
-const STABLE_CONNECTION_THRESHOLD = 30_000;
+const STABLE_CONNECTION_THRESHOLD = 120_000;
 
 export interface WsConnectionHealth {
   marketConnected: boolean;
@@ -67,6 +67,7 @@ export class PolymarketWebSocket {
   private lastMarketData: MarketData | null = null;
   private activeAssetId: string | null = null;
   private onRefreshAssetIdsCallback: (() => Promise<string[]>) | null = null;
+  private wsLogThrottle: Map<string, number> = new Map();
 
   onFill(cb: FillCallback) {
     this.onFillCallbacks.push(cb);
@@ -121,6 +122,7 @@ export class PolymarketWebSocket {
       return;
     }
     this.subscribedMarketAssets = validIds;
+    this.activeAssetId = validIds[0];
     this.shouldReconnectMarket = true;
     this.invalidOpCountMarket = 0;
     this.marketReconnects = 0;
@@ -217,9 +219,14 @@ export class PolymarketWebSocket {
 
         this.marketPingTimer = setInterval(() => {
           if (this.marketWs?.readyState === WebSocket.OPEN) {
-            this.marketWs.send(JSON.stringify({ type: "ping" }));
+            try { this.marketWs.ping(); } catch {}
+            try { this.marketWs.send(JSON.stringify({ type: "ping" })); } catch {}
           }
         }, PING_INTERVAL);
+      });
+
+      this.marketWs.on("pong", () => {
+        this.marketLastMessage = Date.now();
       });
 
       this.marketWs.on("message", (raw: Buffer) => {
@@ -255,16 +262,25 @@ export class PolymarketWebSocket {
       });
 
       this.marketWs.on("close", (code: number, reason: Buffer) => {
-        const wasStable = this.marketConnectedAt > 0 && (Date.now() - this.marketConnectedAt) > STABLE_CONNECTION_THRESHOLD;
+        const connectionDuration = this.marketConnectedAt > 0 ? Date.now() - this.marketConnectedAt : 0;
+        const wasStable = connectionDuration > STABLE_CONNECTION_THRESHOLD;
         this.marketConnected = false;
-        this.marketConnectedAt = 0;
+
         if (wasStable) {
           this.marketReconnects = 0;
           this.marketReconnectDelay = INITIAL_RECONNECT_DELAY;
-          this.log("info", `Market WS: Disconnected after stable period (code: ${code}). Reset reconnect counter.`);
+          this.log("info", `Market WS: Disconnected after ${Math.floor(connectionDuration / 1000)}s stable period (code: ${code}). Reset counter.`);
+        } else if (code === 1005 && connectionDuration < 5000) {
+          this.log("warn", `Market WS: Quick disconnect (${connectionDuration}ms, code 1005). Possible subscription issue.`);
+          if (this.marketReconnects > 10 && this.marketReconnects % 10 === 0) {
+            this.marketReconnectDelay = Math.min(this.marketReconnectDelay + 5000, MAX_RECONNECT_DELAY);
+            this.log("warn", `Market WS: ${this.marketReconnects} quick disconnects. Increasing delay to ${this.marketReconnectDelay}ms.`);
+          }
         } else {
-          this.log("warn", `Market WS: Disconnected (code: ${code}, reason: ${reason.toString()})`);
+          this.log("warn", `Market WS: Disconnected (code: ${code}, duration: ${connectionDuration}ms)`);
         }
+
+        this.marketConnectedAt = 0;
         this._scheduleMarketReconnect();
       });
 
@@ -311,9 +327,14 @@ export class PolymarketWebSocket {
 
         this.userPingTimer = setInterval(() => {
           if (this.userWs?.readyState === WebSocket.OPEN) {
-            this.userWs.send(JSON.stringify({ type: "ping" }));
+            try { this.userWs.ping(); } catch {}
+            try { this.userWs.send(JSON.stringify({ type: "ping" })); } catch {}
           }
         }, PING_INTERVAL);
+      });
+
+      this.userWs.on("pong", () => {
+        this.userLastMessage = Date.now();
       });
 
       this.userWs.on("message", (raw: Buffer) => {
@@ -617,6 +638,19 @@ export class PolymarketWebSocket {
       console.warn(`${prefix} ${message}`);
     } else {
       console.log(`${prefix} ${message}`);
+    }
+
+    const isReconnectMsg = message.includes("Reconnecting") ||
+                            message.includes("Disconnected") ||
+                            message.includes("Connected (reconnects") ||
+                            message.includes("Quick disconnect");
+    if (isReconnectMsg) {
+      const throttleKey = message.includes("User WS") ? "user_reconnect" : "market_reconnect";
+      const lastLog = this.wsLogThrottle.get(throttleKey) || 0;
+      if (Date.now() - lastLog < 30_000) {
+        return;
+      }
+      this.wsLogThrottle.set(throttleKey, Date.now());
     }
 
     const eventType = level === "error" ? "ERROR" : "INFO";

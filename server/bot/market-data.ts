@@ -10,10 +10,10 @@ export class MarketDataModule {
   private readonly MAX_ERRORS_BEFORE_FALLBACK = 5;
   private wsSource: PolymarketWebSocket | null = null;
   private lastWsUpdate = 0;
-  private readonly WS_STALE_THRESHOLD = 10_000;
+  private readonly WS_STALE_THRESHOLD = 8_000;
   private restPollingTimer: ReturnType<typeof setInterval> | null = null;
   private restPollingActive = false;
-  private readonly REST_POLL_INTERVAL = 3_000;
+  private readonly REST_POLL_INTERVAL = 2_000;
 
   setTokenId(tokenId: string | null): void {
     const prevToken = this.currentTokenId;

@@ -223,15 +223,10 @@ export class StrategyEngine {
   }
 
   private getMarketAssetIds(config: BotConfig): string[] {
-    const ids: string[] = [];
     if (config.currentMarketId) {
-      ids.push(config.currentMarketId);
+      return [config.currentMarketId];
     }
-    const tokenDown = (config as any).currentMarketTokenDown;
-    if (tokenDown && tokenDown.length > 10 && !tokenDown.includes("sim") && !ids.includes(tokenDown)) {
-      ids.push(tokenDown);
-    }
-    return ids;
+    return [];
   }
 
   async stop(): Promise<void> {
@@ -1035,11 +1030,9 @@ export class StrategyEngine {
     polymarketWs.disconnectAll();
     this.wsSetup = false;
 
-    const assetIds = [market.tokenUp];
-    if (market.tokenDown && market.tokenDown.length > 10) {
-      assetIds.push(market.tokenDown);
-    }
-    polymarketWs.setActiveAssetId(market.tokenUp);
+    const activeTokenId = config.currentMarketId || market.tokenUp;
+    const assetIds = [activeTokenId];
+    polymarketWs.setActiveAssetId(activeTokenId);
     polymarketWs.connectMarket(assetIds);
     this.marketData.setWsDataSource(polymarketWs);
 
@@ -1052,13 +1045,13 @@ export class StrategyEngine {
       if (freshConfig?.currentMarketId) {
         return [freshConfig.currentMarketId];
       }
-      return assetIds;
+      return [activeTokenId];
     });
 
     if (!config.isPaperTrading && liveTradingClient.isInitialized()) {
       const creds = liveTradingClient.getApiCreds();
       if (creds) {
-        polymarketWs.connectUser(assetIds, creds);
+        polymarketWs.connectUser([activeTokenId], creds);
         polymarketWs.onRefreshApiCreds(async () => {
           return liveTradingClient.getApiCreds();
         });
@@ -1071,6 +1064,8 @@ export class StrategyEngine {
         });
       }
     }
+
+    this.marketData.startRestPolling();
 
     this.wsSetup = true;
   }
