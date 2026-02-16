@@ -780,6 +780,8 @@ export default function Overview() {
 
       {status && <SmartModulesPanel status={status} />}
 
+      {status && <DualBuyPanel status={status} />}
+
       <HealthAlertsPanel />
     </div>
   );
@@ -998,6 +1000,156 @@ function SmartModulesPanel({ status }: { status: BotStatus }) {
               <span className="text-[10px] text-muted-foreground">No market data</span>
             )}
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DualBuyPanel({ status }: { status: BotStatus }) {
+  const { toast } = useToast();
+  const db = status.dualBuy;
+
+  const toggleMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      return apiRequest("POST", "/api/config", { dualBuyEnabled: enabled });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      toast({ title: db?.enabled ? "Dual Buy desactivado" : "Dual Buy activado" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (updates: Record<string, any>) => {
+      return apiRequest("POST", "/api/config", updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+    },
+  });
+
+  const [localPrice, setLocalPrice] = useState(String(db?.price ?? 0.45));
+  const [localSize, setLocalSize] = useState(String(db?.size ?? 1));
+  const [localLead, setLocalLead] = useState(String(db?.leadSeconds ?? 30));
+
+  useEffect(() => {
+    if (db) {
+      setLocalPrice(String(db.price));
+      setLocalSize(String(db.size));
+      setLocalLead(String(db.leadSeconds));
+    }
+  }, [db?.price, db?.size, db?.leadSeconds]);
+
+  const nextPlacement = db?.nextPlacementIn;
+
+  return (
+    <Card data-testid="card-dual-buy">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <ArrowUpDown className="w-4 h-4" />
+          Dual Buy Pre-Market
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          {db?.lastPlacedCycle && (
+            <span className="text-[9px] text-muted-foreground font-mono">
+              Last: {db.lastPlacedCycle.split("-").slice(-1)[0]}
+            </span>
+          )}
+          <Switch
+            checked={db?.enabled ?? false}
+            onCheckedChange={(checked) => toggleMutation.mutate(checked)}
+            data-testid="switch-dual-buy"
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div className="flex flex-col gap-1 p-2 rounded bg-muted/30 border border-muted">
+            <span className="text-[10px] text-muted-foreground">Price</span>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max="0.99"
+                value={localPrice}
+                onChange={(e) => setLocalPrice(e.target.value)}
+                onBlur={() => {
+                  const val = parseFloat(localPrice);
+                  if (!isNaN(val) && val >= 0.01 && val <= 0.99 && val !== db?.price) {
+                    updateMutation.mutate({ dualBuyPrice: val });
+                  }
+                }}
+                className="bg-transparent border-none text-sm font-mono font-bold w-14 outline-none"
+                data-testid="input-dual-buy-price"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 p-2 rounded bg-muted/30 border border-muted">
+            <span className="text-[10px] text-muted-foreground">Size/side</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                step="0.5"
+                min="0.1"
+                max="1000"
+                value={localSize}
+                onChange={(e) => setLocalSize(e.target.value)}
+                onBlur={() => {
+                  const val = parseFloat(localSize);
+                  if (!isNaN(val) && val >= 0.1 && val <= 1000 && val !== db?.size) {
+                    updateMutation.mutate({ dualBuySize: val });
+                  }
+                }}
+                className="bg-transparent border-none text-sm font-mono font-bold w-14 outline-none"
+                data-testid="input-dual-buy-size"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 p-2 rounded bg-muted/30 border border-muted">
+            <span className="text-[10px] text-muted-foreground">Lead (sec)</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                step="5"
+                min="5"
+                max="120"
+                value={localLead}
+                onChange={(e) => setLocalLead(e.target.value)}
+                onBlur={() => {
+                  const val = parseInt(localLead);
+                  if (!isNaN(val) && val >= 5 && val <= 120 && val !== db?.leadSeconds) {
+                    updateMutation.mutate({ dualBuyLeadSeconds: val });
+                  }
+                }}
+                className="bg-transparent border-none text-sm font-mono font-bold w-14 outline-none"
+                data-testid="input-dual-buy-lead"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 p-2 rounded bg-muted/30 border border-muted">
+            <span className="text-[10px] text-muted-foreground">Next placement</span>
+            <span className="text-sm font-mono font-bold" data-testid="text-dual-buy-next">
+              {!db?.enabled ? "Off" :
+               nextPlacement === null ? "—" :
+               nextPlacement === 0 ? "NOW" :
+               `${nextPlacement}s`}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-2 border-t border-muted">
+          <span>
+            Cost per cycle: <span className="font-mono font-medium text-foreground">${((db?.price ?? 0.45) * (db?.size ?? 1) * 2).toFixed(2)}</span>
+          </span>
+          <span>
+            Max profit: <span className="font-mono font-medium text-emerald-400">${(((1 - (db?.price ?? 0.45)) * (db?.size ?? 1) - (db?.price ?? 0.45) * (db?.size ?? 1))).toFixed(2)}</span> if both fill
+          </span>
+          <span>
+            Orders this cycle: <span className="font-mono font-medium" data-testid="text-dual-buy-orders">{db?.ordersThisCycle ?? 0}/2</span>
+          </span>
         </div>
       </CardContent>
     </Card>

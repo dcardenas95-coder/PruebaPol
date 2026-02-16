@@ -34,6 +34,10 @@ export const botConfig = pgTable("bot_config", {
   autoRotate: boolean("auto_rotate").notNull().default(false),
   autoRotateAsset: text("auto_rotate_asset").notNull().default("btc"),
   autoRotateInterval: text("auto_rotate_interval").notNull().default("5m"),
+  dualBuyEnabled: boolean("dual_buy_enabled").notNull().default(false),
+  dualBuyPrice: real("dual_buy_price").notNull().default(0.45),
+  dualBuySize: real("dual_buy_size").notNull().default(1),
+  dualBuyLeadSeconds: integer("dual_buy_lead_seconds").notNull().default(30),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -304,6 +308,10 @@ export const updateBotConfigSchema = z.object({
   autoRotate: z.boolean().optional(),
   autoRotateAsset: z.string().optional(),
   autoRotateInterval: z.string().optional(),
+  dualBuyEnabled: z.boolean().optional(),
+  dualBuyPrice: z.number().min(0.01).max(0.99).optional(),
+  dualBuySize: z.number().min(0.1).max(1000).optional(),
+  dualBuyLeadSeconds: z.number().min(5).max(120).optional(),
 });
 
 export type UpdateBotConfig = z.infer<typeof updateBotConfigSchema>;
@@ -455,4 +463,13 @@ export type BotStatus = {
     price: number;
     size: number;
   } | null;
+  dualBuy?: {
+    enabled: boolean;
+    price: number;
+    size: number;
+    leadSeconds: number;
+    lastPlacedCycle: string | null;
+    ordersThisCycle: number;
+    nextPlacementIn: number | null;
+  };
 };

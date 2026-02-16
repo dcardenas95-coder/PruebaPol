@@ -159,6 +159,18 @@ export async function fetchUpcoming5mMarkets(asset: AssetType = "btc", count: nu
   return results;
 }
 
+export async function fetchNextIntervalMarket(asset: AssetType = "btc", interval: IntervalType = "5m"): Promise<Market5mInfo | null> {
+  const prefix = getSlugPrefix(asset, interval);
+  const nextTs = getNextIntervalTimestamp(interval);
+  const slug = `${prefix}-${nextTs}`;
+  const event = await fetchEventBySlug(slug);
+  if (event) {
+    const info = parseEvent(event, interval);
+    if (info) return info;
+  }
+  return null;
+}
+
 export function computeNextIntervalSlug(asset: AssetType = "btc", interval: IntervalType = "5m"): { slug: string; startsInMs: number; intervalStart: number } {
   const prefix = getSlugPrefix(asset, interval);
   const nextTs = getNextIntervalTimestamp(interval);

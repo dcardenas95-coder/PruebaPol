@@ -12,6 +12,7 @@ import { marketRegimeFilter } from "./market-regime-filter";
 import type { BotConfig, MarketData, BotStatus, Order } from "@shared/schema";
 import { format } from "date-fns";
 import { fetchCurrentIntervalMarket, type AssetType, type IntervalType } from "../strategies/dualEntry5m/market-5m-discovery";
+import { dualBuyManager } from "./dual-buy-manager";
 
 type BotState = "MAKING" | "UNWIND" | "CLOSE_ONLY" | "HEDGE_LOCK" | "DONE" | "STOPPED";
 
@@ -459,6 +460,12 @@ export class StrategyEngine {
             level: "info",
           });
         }
+      }
+
+      try {
+        await dualBuyManager.tick(config, this.orderManager);
+      } catch (dbErr: any) {
+        console.error(`[DualBuy] tick error: ${dbErr.message}`);
       }
     } catch (error: any) {
       await storage.createEvent({
@@ -1168,6 +1175,10 @@ export class StrategyEngine {
         autoRotate: false,
         autoRotateAsset: "btc",
         autoRotateInterval: "5m",
+        dualBuyEnabled: false,
+        dualBuyPrice: 0.45,
+        dualBuySize: 1,
+        dualBuyLeadSeconds: 30,
         updatedAt: new Date(),
       },
       marketData,
@@ -1197,6 +1208,7 @@ export class StrategyEngine {
       stopLoss: stopLossManager.getStatus(),
       progressiveSizer: sizerStatus,
       marketRegime: marketRegimeFilter.getStatus(marketData),
+      dualBuy: dualBuyManager.getStatus(config || { dualBuyEnabled: false, dualBuyPrice: 0.45, dualBuySize: 1, dualBuyLeadSeconds: 30, isActive: false, autoRotateAsset: "btc", autoRotateInterval: "5m" } as any, remainingMs),
       lastEntry: this.lastEntryTokenSide ? {
         tokenSide: this.lastEntryTokenSide,
         price: this.lastEntryPrice!,
