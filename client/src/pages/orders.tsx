@@ -39,7 +39,13 @@ function sideBadgeClass(side: string) {
   return side === "BUY" ? "text-emerald-500" : "text-red-500";
 }
 
+function tokenSideLabel(order: Order): "YES" | "NO" {
+  if (!order.tokenId || order.tokenId === order.marketId) return "YES";
+  return "NO";
+}
+
 function OrderRow({ order, onCancel }: { order: Order; onCancel: (id: string) => void }) {
+  const token = tokenSideLabel(order);
   return (
     <TableRow data-testid={`row-order-${order.id}`}>
       <TableCell className="font-mono text-xs max-w-[120px] truncate">
@@ -49,6 +55,15 @@ function OrderRow({ order, onCancel }: { order: Order; onCancel: (id: string) =>
         <span className={`font-medium text-sm ${sideBadgeClass(order.side)}`}>
           {order.side}
         </span>
+      </TableCell>
+      <TableCell>
+        <Badge
+          variant="outline"
+          className={`text-xs font-semibold ${token === "YES" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400"}`}
+          data-testid={`badge-token-${order.id}`}
+        >
+          {token}
+        </Badge>
       </TableCell>
       <TableCell className="font-mono text-sm">${order.price.toFixed(4)}</TableCell>
       <TableCell className="font-mono text-sm">{order.size.toFixed(2)}</TableCell>
@@ -186,6 +201,7 @@ export default function Orders() {
                     <TableRow>
                       <TableHead>Client ID</TableHead>
                       <TableHead>Side</TableHead>
+                      <TableHead>Token</TableHead>
                       <TableHead>Price</TableHead>
                       <TableHead>Size</TableHead>
                       <TableHead>Filled</TableHead>
@@ -223,6 +239,7 @@ export default function Orders() {
                     <TableRow>
                       <TableHead>Client ID</TableHead>
                       <TableHead>Side</TableHead>
+                      <TableHead>Token</TableHead>
                       <TableHead>Price</TableHead>
                       <TableHead>Size</TableHead>
                       <TableHead>Filled</TableHead>
