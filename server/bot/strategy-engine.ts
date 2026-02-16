@@ -28,9 +28,6 @@ export class StrategyEngine {
   private lastDailyReset = new Date().toDateString();
   private waitForMarketInterval: ReturnType<typeof setInterval> | null = null;
   private isLiquidating = false;
-  private liquidatingStartTime = 0;
-  private readonly LIQUIDATION_PATIENCE_MS = 60000;
-  private liquidationInterval: ReturnType<typeof setInterval> | null = null;
   private lastSeenBestBid = 0;
   private readonly PRICE_JUMP_THRESHOLD = 0.20;
 
@@ -173,16 +170,9 @@ export class StrategyEngine {
     binanceOracle.markWindowStart();
     stopLossManager.clearAll();
 
-    this.setupTakeProfitCallback(config);
     this.setupWebSocket(config);
 
     this.interval = setInterval(() => this.tick(), 2000);
-  }
-
-  private setupTakeProfitCallback(config: BotConfig): void {
-    // HOLD-TO-RESOLUTION: TP callback desactivado
-    // Las posiciones se mantienen hasta que el mercado resuelve a $1.00 o $0.00
-    return;
   }
 
   private setupWebSocket(config: BotConfig): void {
@@ -234,6 +224,10 @@ export class StrategyEngine {
     if (config.currentMarketId) {
       ids.push(config.currentMarketId);
     }
+    const tokenDown = (config as any).currentMarketTokenDown;
+    if (tokenDown && tokenDown.length > 10 && !tokenDown.includes("sim") && !ids.includes(tokenDown)) {
+      ids.push(tokenDown);
+    }
     return ids;
   }
 
@@ -267,233 +261,11 @@ export class StrategyEngine {
     await this.forceStop();
   }
 
-  private async startLiquidation(openPositions: any[]): Promise<void> {
-    this.isLiquidating = true;
-    this.liquidatingStartTime = Date.now();
-
-    await storage.updateBotConfig({ isActive: false });
-
-    this.orderManager.clearAllTimeouts();
-
-    const activeOrders = await this.orderManager.getActiveOrders();
-    const buyOrders = activeOrders.filter(o => o.side === "BUY");
-    for (const order of buyOrders) {
-      await this.orderManager.cancelOrder(order.id);
-    }
-
-    const totalSize = openPositions.reduce((sum: number, p: any) => sum + p.size, 0);
-
-    await storage.createEvent({
-      type: "STATE_CHANGE",
-      message: `[LIQUIDATING] Stop requested with ${openPositions.length} open position(s) (total size: ${totalSize.toFixed(2)}). Attempting orderly exit at break-even for 60s before force-crossing spread.`,
-      data: { positions: openPositions.length, totalSize, patienceMs: this.LIQUIDATION_PATIENCE_MS },
-      level: "warn",
-    });
-
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-
-    polymarketWs.disconnectAll();
-    this.marketData.stopRestPolling();
-    this.wsSetup = false;
-
-    this.liquidationInterval = setInterval(() => this.liquidationTick(), 3000);
-  }
-
-  private async liquidationTick(): Promise<void> {
-    try {
-      const config = await storage.getBotConfig();
-      if (!config) { await this.forceStop(); return; }
-
-      const positions = await storage.getPositions();
-      const openPositions = positions.filter(p => p.size > 0);
-
-      if (openPositions.length === 0) {
-        await storage.createEvent({
-          type: "STATE_CHANGE",
-          message: "[LIQUIDATING] All positions closed successfully. Bot stopped.",
-          data: {},
-          level: "info",
-        });
-        await this.forceStop();
-        return;
-      }
-
-      if (config.isPaperTrading) {
-        let liqData: MarketData | null = null;
-        try { liqData = await this.marketData.getData(); } catch (_) {}
-        const activeOrders = await this.orderManager.getActiveOrders();
-        const tokenUpId = config.currentMarketId || "";
-        for (const order of activeOrders) {
-          const isTokenDown = order.tokenId && order.tokenId !== tokenUpId && order.tokenId !== order.marketId;
-          const orderBookData = liqData
-            ? isTokenDown
-              ? {
-                  bestBid: parseFloat((1 - liqData.bestAsk).toFixed(4)),
-                  bestAsk: parseFloat((1 - liqData.bestBid).toFixed(4)),
-                  bidDepth: liqData.askDepth,
-                  askDepth: liqData.bidDepth,
-                }
-              : {
-                  bestBid: liqData.bestBid,
-                  bestAsk: liqData.bestAsk,
-                  bidDepth: liqData.bidDepth,
-                  askDepth: liqData.askDepth,
-                }
-            : undefined;
-          await this.orderManager.simulateFill(order.id, orderBookData);
-        }
-      } else {
-        await this.orderManager.pollLiveOrderStatuses();
-      }
-
-      const positionsAfterFills = await storage.getPositions();
-      const stillOpen = positionsAfterFills.filter(p => p.size > 0);
-      if (stillOpen.length === 0) {
-        await storage.createEvent({
-          type: "STATE_CHANGE",
-          message: "[LIQUIDATING] All positions closed after fill check. Bot stopped.",
-          data: {},
-          level: "info",
-        });
-        await this.forceStop();
-        return;
-      }
-
-      const elapsed = Date.now() - this.liquidatingStartTime;
-      const tokenId = config.currentMarketId || "";
-      const negRisk = config.currentMarketNegRisk ?? false;
-      const tickSize = config.currentMarketTickSize ?? "0.01";
-
-      if (!tokenId || tokenId.includes("sim")) {
-        for (const pos of stillOpen) {
-          await storage.upsertPosition({
-            marketId: pos.marketId,
-            side: pos.side,
-            size: 0,
-            avgEntryPrice: pos.avgEntryPrice,
-            unrealizedPnl: 0,
-            realizedPnl: pos.realizedPnl,
-          });
-        }
-        await storage.createEvent({
-          type: "STATE_CHANGE",
-          message: "[LIQUIDATING] No real market token - zeroed simulated positions. Bot stopped.",
-          data: {},
-          level: "info",
-        });
-        await this.forceStop();
-        return;
-      }
-
-      let data: MarketData | null = null;
-      try {
-        data = await this.marketData.getData();
-      } catch (_) {}
-
-      if (!data) {
-        try {
-          const { polymarketClient } = await import("./polymarket-client");
-          data = await polymarketClient.fetchMarketData(tokenId);
-        } catch (_) {}
-      }
-
-      if (!data) {
-        return;
-      }
-
-      if (elapsed < this.LIQUIDATION_PATIENCE_MS) {
-        for (const pos of stillOpen) {
-          const existingOrders = await this.orderManager.getActiveOrders();
-          const sellOrders = existingOrders.filter(o => o.side === "SELL" && o.marketId === pos.marketId);
-          const coveredSize = sellOrders.reduce((sum, o) => sum + (o.size - o.filledSize), 0);
-          const uncovered = pos.size - coveredSize;
-
-          if (uncovered < 0.5) continue;
-
-          const exitPrice = pos.side === "BUY"
-            ? Math.max(pos.avgEntryPrice, data.bestBid)
-            : Math.min(pos.avgEntryPrice, data.bestAsk);
-
-          const clampedPrice = Math.max(0.01, Math.min(0.99, exitPrice));
-          const exitSide = pos.side === "BUY" ? "SELL" : "BUY";
-
-          await storage.createEvent({
-            type: "INFO",
-            message: `[LIQUIDATING] Placing break-even exit: ${exitSide} ${uncovered.toFixed(2)} @ $${clampedPrice.toFixed(4)} (entry: $${pos.avgEntryPrice.toFixed(4)}, ${Math.floor((this.LIQUIDATION_PATIENCE_MS - elapsed) / 1000)}s patience left)`,
-            data: { side: exitSide, price: clampedPrice, size: uncovered, entryPrice: pos.avgEntryPrice },
-            level: "info",
-          });
-
-          await this.orderManager.placeOrder({
-            marketId: pos.marketId,
-            tokenId,
-            side: exitSide,
-            price: clampedPrice,
-            size: uncovered,
-            isPaperTrade: config.isPaperTrading,
-            negRisk,
-            tickSize,
-          });
-        }
-      } else {
-        await this.orderManager.cancelAllOrders();
-
-        for (const pos of stillOpen) {
-          const exitSide = pos.side === "BUY" ? "SELL" : "BUY";
-          let exitPrice: number;
-
-          if (pos.side === "BUY") {
-            exitPrice = data.bestBid - 0.01;
-          } else {
-            exitPrice = data.bestAsk + 0.01;
-          }
-
-          exitPrice = Math.max(0.01, Math.min(0.99, exitPrice));
-
-          await storage.createEvent({
-            type: "INFO",
-            message: `[LIQUIDATING] Patience expired → force-crossing spread: ${exitSide} ${pos.size.toFixed(2)} @ $${exitPrice.toFixed(4)} (entry: $${pos.avgEntryPrice.toFixed(4)})`,
-            data: { side: exitSide, price: exitPrice, size: pos.size, entryPrice: pos.avgEntryPrice },
-            level: "warn",
-          });
-
-          await this.orderManager.placeOrder({
-            marketId: pos.marketId,
-            tokenId,
-            side: exitSide,
-            price: exitPrice,
-            size: pos.size,
-            isPaperTrade: config.isPaperTrading,
-            negRisk,
-            tickSize,
-          });
-        }
-      }
-    } catch (err: any) {
-      console.error(`[StrategyEngine] Liquidation tick error (will retry): ${err.message}`);
-      await storage.createEvent({
-        type: "ERROR",
-        message: `[LIQUIDATING] Tick error (retrying): ${err.message}`,
-        data: { stack: err.stack?.slice(0, 300) },
-        level: "error",
-      });
-    }
-  }
-
   private async forceStop(): Promise<void> {
     this.isLiquidating = false;
-    this.liquidatingStartTime = 0;
 
     for (const t of this.hedgeLockRepriceTimers) clearTimeout(t);
     this.hedgeLockRepriceTimers = [];
-
-    if (this.liquidationInterval) {
-      clearInterval(this.liquidationInterval);
-      this.liquidationInterval = null;
-    }
 
     if (this.interval) {
       clearInterval(this.interval);
@@ -1002,19 +774,6 @@ export class StrategyEngine {
     }
   }
 
-  private async ensureTakeProfitOrders(
-    config: BotConfig,
-    data: MarketData,
-    existingTpOrders: Order[],
-    tokenId: string,
-    marketId: string,
-    negRisk: boolean,
-    tickSize: string,
-  ): Promise<void> {
-    // HOLD-TO-RESOLUTION: No TP orders. Positions resolve at market close ($1.00 or $0.00)
-    return;
-  }
-
   private async executeUnwind(config: BotConfig, data: MarketData): Promise<void> {
     const activeOrders = await this.orderManager.getActiveOrders();
     const buyOrders = activeOrders.filter(o => o.side === "BUY");
@@ -1264,6 +1023,9 @@ export class StrategyEngine {
     this.wsSetup = false;
 
     const assetIds = [market.tokenUp];
+    if (market.tokenDown && market.tokenDown.length > 10) {
+      assetIds.push(market.tokenDown);
+    }
     polymarketWs.setActiveAssetId(market.tokenUp);
     polymarketWs.connectMarket(assetIds);
     this.marketData.setWsDataSource(polymarketWs);
@@ -1405,9 +1167,7 @@ export class StrategyEngine {
       wsHealth: polymarketWs.getHealth(),
       marketRemainingMs: remainingMs,
       marketDurationMs: this.MARKET_DURATION,
-      isLiquidating: this.isLiquidating,
-      liquidationElapsedMs: this.isLiquidating ? Date.now() - this.liquidatingStartTime : undefined,
-      liquidationPatienceMs: this.isLiquidating ? this.LIQUIDATION_PATIENCE_MS : undefined,
+      isLiquidating: false,
       cycleCount: this.cycleCount,
       oracle: binanceOracle.getStatus(),
       stopLoss: stopLossManager.getStatus(),

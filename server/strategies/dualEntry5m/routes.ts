@@ -41,6 +41,11 @@ dualEntryRouter.post("/config", async (req, res) => {
 
 dualEntryRouter.post("/start", async (_req, res) => {
   try {
+    const { storage } = await import("../../storage");
+    const botConfig = await storage.getBotConfig();
+    if (botConfig?.isActive) {
+      return res.status(400).json({ success: false, error: "Cannot start Dual-Entry 5m while the main FSM bot is active (hold-to-resolution strategy conflict — SELL orders would be placed)" });
+    }
     const result = await dualEntry5mEngine.start();
     if (!result.success) {
       return res.status(400).json({ success: false, error: result.error });
