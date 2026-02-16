@@ -247,8 +247,21 @@ export class StrategyEngine {
     const openPositions = positions.filter(p => p.size > 0);
 
     if (openPositions.length > 0) {
-      await this.startLiquidation(openPositions);
-      return;
+      // HOLD-TO-RESOLUTION: Do NOT liquidate — settle positions at resolution price
+      await this.orderManager.cancelAllOrders();
+
+      const config = await storage.getBotConfig();
+      if (config) {
+        const data = this.marketData.getLastData();
+        await this.settleMarketResolution(config, data || { bestBid: 0, bestAsk: 0, spread: 0, midpoint: 0, bidDepth: 0, askDepth: 0, lastPrice: 0, volume24h: 0 });
+      }
+
+      await storage.createEvent({
+        type: "STATE_CHANGE",
+        message: `[STOP] Bot stopped with ${openPositions.length} position(s) — settled at resolution (hold-to-resolution, no selling)`,
+        data: { positionsSettled: openPositions.length },
+        level: "info",
+      });
     }
 
     await this.forceStop();
