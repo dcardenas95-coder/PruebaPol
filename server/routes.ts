@@ -275,7 +275,7 @@ export async function registerRoutes(
 
   app.get("/api/events", async (_req, res) => {
     try {
-      const events = await storage.getEvents(300);
+      const events = await storage.getEvents(1500);
       res.json(events);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
