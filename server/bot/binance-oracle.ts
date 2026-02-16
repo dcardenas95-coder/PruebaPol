@@ -25,8 +25,8 @@ export interface OracleConfig {
 
 const DEFAULT_CONFIG: OracleConfig = {
   strongThreshold: 20,
-  weakThreshold: 10,
-  minConfidence: 0.50,
+  weakThreshold: 8,
+  minConfidence: 0.35,
   enabled: true,
 };
 
@@ -363,7 +363,7 @@ export class BinanceOracle {
     let direction: SignalDirection = "NEUTRAL";
     let strength: SignalStrength = "NONE";
 
-    if (absDelta >= this.config.strongThreshold && confidence >= 0.75) {
+    if (absDelta >= this.config.strongThreshold && confidence >= 0.55) {
       direction = delta > 0 ? "UP" : "DOWN";
       strength = "STRONG";
     } else if (absDelta >= this.config.weakThreshold && confidence >= this.config.minConfidence) {

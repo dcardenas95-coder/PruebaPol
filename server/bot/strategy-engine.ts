@@ -633,7 +633,7 @@ export class StrategyEngine {
       }
     }
 
-    const MAX_ENTRY_PRICE = 0.52;
+    const MAX_ENTRY_PRICE = 0.58;
     const MIN_ENTRY_PRICE = 0.10;
 
     if (entryPrice > MAX_ENTRY_PRICE) {
@@ -660,14 +660,14 @@ export class StrategyEngine {
     let effectiveSize: number;
     let layer: string;
 
-    if (oracleSignal.strength === "STRONG" && oracleConfidence >= 0.70) {
+    if (oracleSignal.strength === "STRONG" && oracleConfidence >= 0.55) {
       const maxRisk = config.maxNetExposure * 0.05;
       effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize).toFixed(2));
       layer = "L1-STRONG";
-    } else if (oracleSignal.strength === "WEAK" && oracleConfidence >= 0.55) {
+    } else if (oracleSignal.strength !== "NONE" && oracleConfidence >= 0.35) {
       const maxRisk = config.maxNetExposure * 0.03;
       effectiveSize = parseFloat(Math.min(maxRisk / entryPrice, config.orderSize * 0.6).toFixed(2));
-      layer = "L2-MODERATE";
+      layer = "L2-EARLY";
     } else {
       await storage.createEvent({
         type: "INFO",
@@ -1146,7 +1146,7 @@ export class StrategyEngine {
         isActive: false,
         isPaperTrading: true,
         currentState: "STOPPED",
-        minSpread: 0.03,
+        minSpread: 0.005,
         targetProfitMin: 0.40,
         targetProfitMax: 0.53,
         maxNetExposure: 200,
