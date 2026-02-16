@@ -23,6 +23,8 @@ export interface IStorage {
   createOrder(order: InsertOrder): Promise<Order>;
   updateOrderStatus(id: string, status: string, filledSize?: number): Promise<Order | undefined>;
   updateOrderExchangeId(id: string, exchangeOrderId: string): Promise<Order | undefined>;
+  updateOrderOutcome(id: string, outcome: string): Promise<Order | undefined>;
+  updateOrdersOutcomeByMarket(marketId: string, outcome: string, tokenSide?: string): Promise<void>;
   cancelAllOpenOrders(): Promise<void>;
 
   getFills(): Promise<Fill[]>;
@@ -119,6 +121,24 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orders.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  async updateOrderOutcome(id: string, outcome: string): Promise<Order | undefined> {
+    const [updated] = await db.update(orders)
+      .set({ outcome, updatedAt: new Date() })
+      .where(eq(orders.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async updateOrdersOutcomeByMarket(marketId: string, outcome: string, tokenSide?: string): Promise<void> {
+    const conditions = [eq(orders.marketId, marketId), eq(orders.status, "FILLED")];
+    if (tokenSide) {
+      conditions.push(eq(orders.tokenSide, tokenSide));
+    }
+    await db.update(orders)
+      .set({ outcome, updatedAt: new Date() })
+      .where(and(...conditions));
   }
 
   async cancelAllOpenOrders(): Promise<void> {

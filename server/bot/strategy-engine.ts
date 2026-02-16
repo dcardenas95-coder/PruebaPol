@@ -879,9 +879,15 @@ export class StrategyEngine {
       this.riskManager.recordTradeResult(realizedPnl);
       await this.updateDailyPnl(realizedPnl, realizedPnl > 0, undefined, 0);
 
+      const predictionCorrect = (posTokenSide === "YES" && btcWentUp) || (posTokenSide === "NO" && !btcWentUp);
+      const outcome = predictionCorrect ? "WON" : "LOST";
+      if (posTokenSide) {
+        await storage.updateOrdersOutcomeByMarket(pos.marketId, outcome, posTokenSide);
+      }
+
       await storage.createEvent({
         type: "PNL_UPDATE",
-        message: `[SETTLEMENT] Market resolved: ${posTokenSide || "?"} settled @ $${settlementPrice.toFixed(2)} (entry: $${pos.avgEntryPrice.toFixed(4)}, size: ${pos.size}, PnL: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)}) [BTC ${btcWentUp ? "UP" : "DOWN"}]`,
+        message: `[SETTLEMENT] Market resolved: ${posTokenSide || "?"} settled @ $${settlementPrice.toFixed(2)} (entry: $${pos.avgEntryPrice.toFixed(4)}, size: ${pos.size}, PnL: ${realizedPnl >= 0 ? "+" : ""}$${realizedPnl.toFixed(4)}) [BTC ${btcWentUp ? "UP" : "DOWN"}] → ${outcome}`,
         data: {
           marketId: pos.marketId,
           tokenId: pos.tokenId,
@@ -893,6 +899,7 @@ export class StrategyEngine {
           realizedPnl,
           btcDirection: btcWentUp ? "UP" : "DOWN",
           oracleDelta: oracleSignal.delta,
+          outcome,
         },
         level: realizedPnl >= 0 ? "info" : "warn",
       });

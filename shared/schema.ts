@@ -53,6 +53,7 @@ export const orders = pgTable("orders", {
   isMakerOrder: boolean("is_maker_order").notNull().default(true),
   oracleDirection: text("oracle_direction"),
   oracleConfidence: real("oracle_confidence"),
+  outcome: text("outcome"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

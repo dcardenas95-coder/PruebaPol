@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { XCircle, RefreshCw, Download } from "lucide-react";
+import { XCircle, RefreshCw, Download, Trophy, TrendingDown, Clock } from "lucide-react";
 import type { Order } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -39,7 +39,32 @@ function sideBadgeClass(side: string) {
   return side === "BUY" ? "text-emerald-500" : "text-red-500";
 }
 
-function OrderRow({ order, onCancel }: { order: Order; onCancel: (id: string) => void }) {
+function OutcomeBadge({ outcome }: { outcome: string | null }) {
+  if (!outcome) {
+    return (
+      <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/30">
+        <Clock className="w-3 h-3 mr-1" />
+        Pending
+      </Badge>
+    );
+  }
+  if (outcome === "WON") {
+    return (
+      <Badge variant="outline" className="text-xs font-semibold border-emerald-500/50 text-emerald-400 bg-emerald-500/10">
+        <Trophy className="w-3 h-3 mr-1" />
+        WON
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-xs font-semibold border-red-500/50 text-red-400 bg-red-500/10">
+      <TrendingDown className="w-3 h-3 mr-1" />
+      LOST
+    </Badge>
+  );
+}
+
+function OrderRow({ order, onCancel, showOutcome }: { order: Order; onCancel: (id: string) => void; showOutcome?: boolean }) {
   const token = (order.tokenSide as "YES" | "NO") || "?";
   return (
     <TableRow data-testid={`row-order-${order.id}`}>
@@ -66,6 +91,11 @@ function OrderRow({ order, onCancel }: { order: Order; onCancel: (id: string) =>
       <TableCell>
         <Badge variant={statusBadgeVariant(order.status)}>{order.status}</Badge>
       </TableCell>
+      {showOutcome && (
+        <TableCell data-testid={`cell-outcome-${order.id}`}>
+          <OutcomeBadge outcome={order.outcome} />
+        </TableCell>
+      )}
       <TableCell>
         {order.isPaperTrade && <Badge variant="outline" className="text-xs">Paper</Badge>}
       </TableCell>
@@ -123,6 +153,14 @@ export default function Orders() {
     (o) => o.status === "FILLED" || o.status === "CANCELLED" || o.status === "REJECTED"
   );
 
+  const filledOrders = orders.filter((o) => o.status === "FILLED");
+  const wonOrders = filledOrders.filter((o) => o.outcome === "WON");
+  const lostOrders = filledOrders.filter((o) => o.outcome === "LOST");
+  const pendingOutcome = filledOrders.filter((o) => !o.outcome);
+  const winRate = wonOrders.length + lostOrders.length > 0
+    ? ((wonOrders.length / (wonOrders.length + lostOrders.length)) * 100).toFixed(1)
+    : null;
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -172,6 +210,40 @@ export default function Orders() {
           )}
         </div>
       </div>
+
+      {filledOrders.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="outcome-summary">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Filled</p>
+              <p className="text-2xl font-bold font-mono" data-testid="text-total-filled">{filledOrders.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Won</p>
+              <p className="text-2xl font-bold font-mono text-emerald-400" data-testid="text-total-won">{wonOrders.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Lost</p>
+              <p className="text-2xl font-bold font-mono text-red-400" data-testid="text-total-lost">{lostOrders.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
+              <p className="text-2xl font-bold font-mono" data-testid="text-win-rate">
+                {winRate !== null ? `${winRate}%` : "—"}
+              </p>
+              {pendingOutcome.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">{pendingOutcome.length} pending</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Tabs defaultValue="active">
         <TabsList>
@@ -239,6 +311,7 @@ export default function Orders() {
                       <TableHead>Size</TableHead>
                       <TableHead>Filled</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Outcome</TableHead>
                       <TableHead>Mode</TableHead>
                       <TableHead>Time</TableHead>
                       <TableHead />
@@ -250,6 +323,7 @@ export default function Orders() {
                         key={order.id}
                         order={order}
                         onCancel={(id) => cancelMutation.mutate(id)}
+                        showOutcome
                       />
                     ))}
                   </TableBody>
