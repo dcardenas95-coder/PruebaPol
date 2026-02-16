@@ -9,6 +9,7 @@ PolyMaker is a professional asymmetric market making bot designed for Polymarket
 - Inter for UI text
 - Professional, information-dense layout
 - Speaks Spanish
+- Cuando se habla de base de datos, servidor, terminal o producción, SIEMPRE se refiere al servidor de DigitalOcean Toronto (138.197.139.58), no al entorno de Replit
 
 ## System Architecture
 
