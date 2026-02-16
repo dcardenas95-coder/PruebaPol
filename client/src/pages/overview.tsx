@@ -776,11 +776,13 @@ export default function Overview() {
         </CardContent>
       </Card>
 
+      {status && <StrategySelectorPanel status={status} />}
+
       {status && <OraclePanel status={status} />}
 
       {status && <SmartModulesPanel status={status} />}
 
-      {status && <DualBuyPanel status={status} />}
+      {status?.config?.activeStrategy === "dual_buy" && status && <DualBuyPanel status={status} />}
 
       <HealthAlertsPanel />
     </div>
@@ -1006,23 +1008,85 @@ function SmartModulesPanel({ status }: { status: BotStatus }) {
   );
 }
 
+function StrategySelectorPanel({ status }: { status: BotStatus }) {
+  const { toast } = useToast();
+  const active = status.config?.activeStrategy || "fsm";
+
+  const mutation = useMutation({
+    mutationFn: async (strategy: string) => {
+      return apiRequest("PATCH", "/api/bot/config", { activeStrategy: strategy });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      toast({ title: "Estrategia actualizada" });
+    },
+  });
+
+  return (
+    <Card data-testid="card-strategy-selector">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <BarChart3 className="w-4 h-4" />
+          Estrategia Activa
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => mutation.mutate("fsm")}
+            disabled={mutation.isPending}
+            className={`flex flex-col gap-1.5 p-3 rounded-lg border-2 transition-all ${
+              active === "fsm"
+                ? "border-blue-500 bg-blue-500/10"
+                : "border-muted bg-muted/30 hover:border-muted-foreground/30"
+            }`}
+            data-testid="button-strategy-fsm"
+          >
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              <span className="text-sm font-semibold">Oracle FSM</span>
+              {active === "fsm" && (
+                <Badge variant="outline" className="ml-auto text-[9px] border-blue-500 text-blue-400">Activa</Badge>
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground text-left">
+              Señal Binance BTC → dirección UP/DOWN → hold hasta resolución del mercado
+            </span>
+          </button>
+          <button
+            onClick={() => mutation.mutate("dual_buy")}
+            disabled={mutation.isPending}
+            className={`flex flex-col gap-1.5 p-3 rounded-lg border-2 transition-all ${
+              active === "dual_buy"
+                ? "border-emerald-500 bg-emerald-500/10"
+                : "border-muted bg-muted/30 hover:border-muted-foreground/30"
+            }`}
+            data-testid="button-strategy-dual-buy"
+          >
+            <div className="flex items-center gap-2">
+              <ArrowUpDown className="w-4 h-4" />
+              <span className="text-sm font-semibold">Dual Buy</span>
+              {active === "dual_buy" && (
+                <Badge variant="outline" className="ml-auto text-[9px] border-emerald-500 text-emerald-400">Activa</Badge>
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground text-left">
+              2 órdenes límite (YES + NO) antes de cada mercado nuevo
+            </span>
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DualBuyPanel({ status }: { status: BotStatus }) {
   const { toast } = useToast();
   const db = status.dualBuy;
 
-  const toggleMutation = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      return apiRequest("POST", "/api/config", { dualBuyEnabled: enabled });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
-      toast({ title: db?.enabled ? "Dual Buy desactivado" : "Dual Buy activado" });
-    },
-  });
-
   const updateMutation = useMutation({
     mutationFn: async (updates: Record<string, any>) => {
-      return apiRequest("POST", "/api/config", updates);
+      return apiRequest("PATCH", "/api/bot/config", updates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
@@ -1049,19 +1113,13 @@ function DualBuyPanel({ status }: { status: BotStatus }) {
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <ArrowUpDown className="w-4 h-4" />
           Dual Buy Pre-Market
+          <Badge variant="outline" className="text-[9px] border-emerald-500 text-emerald-400">Activa</Badge>
         </CardTitle>
-        <div className="flex items-center gap-2">
-          {db?.lastPlacedCycle && (
-            <span className="text-[9px] text-muted-foreground font-mono">
-              Last: {db.lastPlacedCycle.split("-").slice(-1)[0]}
-            </span>
-          )}
-          <Switch
-            checked={db?.enabled ?? false}
-            onCheckedChange={(checked) => toggleMutation.mutate(checked)}
-            data-testid="switch-dual-buy"
-          />
-        </div>
+        {db?.lastPlacedCycle && (
+          <span className="text-[9px] text-muted-foreground font-mono">
+            Last: {db.lastPlacedCycle.split("-").slice(-1)[0]}
+          </span>
+        )}
       </CardHeader>
       <CardContent className="p-4 pt-0">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
@@ -1132,8 +1190,7 @@ function DualBuyPanel({ status }: { status: BotStatus }) {
           <div className="flex flex-col gap-1 p-2 rounded bg-muted/30 border border-muted">
             <span className="text-[10px] text-muted-foreground">Next placement</span>
             <span className="text-sm font-mono font-bold" data-testid="text-dual-buy-next">
-              {!db?.enabled ? "Off" :
-               nextPlacement === null ? "—" :
+              {nextPlacement === null ? "—" :
                nextPlacement === 0 ? "NOW" :
                `${nextPlacement}s`}
             </span>
