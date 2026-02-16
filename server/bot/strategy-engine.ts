@@ -1195,7 +1195,17 @@ export class StrategyEngine {
         tokenSide: this.lastEntryTokenSide,
         price: this.lastEntryPrice!,
         size: this.lastEntrySize!,
-      } : null,
+      } : (positions.length > 0 && config?.currentMarketId ? (() => {
+        const pos = positions[0];
+        const tokenUpId = config.currentMarketId;
+        const posTokenId = pos.tokenId || pos.marketId;
+        const isTokenDown = posTokenId !== tokenUpId;
+        return {
+          tokenSide: isTokenDown ? "NO" as const : "YES" as const,
+          price: pos.avgEntryPrice,
+          size: pos.size,
+        };
+      })() : null),
     };
   }
 }
